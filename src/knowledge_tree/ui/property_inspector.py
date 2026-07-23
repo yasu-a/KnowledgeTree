@@ -4,8 +4,9 @@ from PyQt6.QtCore import QSignalBlocker, pyqtSignal
 from PyQt6.QtGui import QColor, QIcon, QPixmap
 from PyQt6.QtWidgets import QComboBox, QFormLayout, QLabel, QLineEdit, QPlainTextEdit, QStackedWidget, QVBoxLayout, QWidget
 
+from knowledge_tree.color_palette import ColorPalette, ColorToken
 from knowledge_tree.demo_graph_editor import ChildCombination
-from knowledge_tree.global_settings import GlobalSettings
+from knowledge_tree.project_settings import ProjectSettings
 from knowledge_tree.viewmodels.graph_viewmodels import GraphEdgeViewModel, GraphNodeViewModel
 
 
@@ -15,7 +16,7 @@ class PropertyInspector(QWidget):
     question_changed = pyqtSignal(str, str, str, object)
     edge_type_changed = pyqtSignal(str, object)
 
-    def __init__(self, settings: GlobalSettings, parent: QWidget | None = None) -> None:
+    def __init__(self, settings: ProjectSettings, parent: QWidget | None = None) -> None:
         """選択なし・質問・エッジ用のフォームを持つインスペクタを初期化する。"""
         super().__init__(parent)
         self._settings = settings
@@ -66,7 +67,7 @@ class PropertyInspector(QWidget):
         self._stack.setCurrentWidget(self._edge_page)
 
     def reload_edge_types(self) -> None:
-        """全体設定の変更後に、エッジ種類コンボボックスの候補を更新する。"""
+        """プロジェクト設定の変更後に、エッジ種類コンボボックスの候補を更新する。"""
         blocker = QSignalBlocker(self.edge_type_combo)
         self._populate_edge_type_combo()
         del blocker
@@ -122,11 +123,15 @@ class PropertyInspector(QWidget):
             self.edge_type_changed.emit(self._edge_id, self.edge_type_combo.currentData())
 
     def _populate_edge_type_combo(self) -> None:
-        """（ラベルなし）と全体設定のエッジ種類を色見本付きで追加する。"""
+        """（ラベルなし）とプロジェクト設定のエッジ種類を色見本付きで追加する。"""
         self.edge_type_combo.clear()
         self.edge_type_combo.addItem("（ラベルなし）", None)
         for edge_type in self._settings.edge_types():
-            self.edge_type_combo.addItem(self._color_icon(edge_type.color_hex), edge_type.label, edge_type.id)
+            self.edge_type_combo.addItem(
+                self._color_icon(edge_type.color_token),
+                edge_type.label,
+                edge_type.id,
+            )
 
     def _edge_type_index_for(self, edge: GraphEdgeViewModel) -> int:
         """エッジのスタイルキーに一致するエッジ種類のコンボボックス位置を返す。"""
@@ -135,8 +140,8 @@ class PropertyInspector(QWidget):
         index = self.edge_type_combo.findData(edge_type_id)
         return index if index >= 0 else 0
 
-    def _color_icon(self, color_hex: str) -> QIcon:
-        """エッジ種類の色を示す小さな四角形アイコンを作る。"""
+    def _color_icon(self, color_token: ColorToken) -> QIcon:
+        """エッジ種類の色トークンを示す小さな四角形アイコンを作る。"""
         pixmap = QPixmap(14, 14)
-        pixmap.fill(QColor(color_hex))
+        pixmap.fill(QColor(ColorPalette.color_hex(color_token)))
         return QIcon(pixmap)

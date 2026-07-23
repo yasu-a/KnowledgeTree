@@ -1,18 +1,20 @@
-"""全体設定とエッジ種類編集Widgetを検証する。"""
+"""プロジェクト設定とエッジ種類編集Widgetを検証する。"""
 
-from knowledge_tree.global_settings import GlobalSettings, NATURAL_PALETTE
+from knowledge_tree.color_palette import ColorPalette, ColorToken
+from knowledge_tree.project_settings import ProjectSettings
 from knowledge_tree.ui.edge_type_editor_widget import EdgeTypeEditorWidget
 
 
-def test_global_settings_provides_fifteen_natural_palette_colors() -> None:
-    """RGB入力の代わりに選択できる自然配色を15色用意する。"""
-    assert len(NATURAL_PALETTE) == 15
-    assert all(color.hex_color.startswith("#") for color in NATURAL_PALETTE)
+def test_color_tokens_provide_fifteen_stable_palette_choices() -> None:
+    """RGB入力の代わりに、安定した15個の色トークンを用意する。"""
+    assert len(ColorToken) == 15
+    assert [color_token.display_name for color_token in ColorToken] == ["Slate", "Blue", "Cyan", "Teal", "Emerald", "Green", "Lime", "Amber", "Orange", "Red", "Rose", "Pink", "Fuchsia", "Purple", "Indigo"]
+    assert all(ColorPalette.color_hex(color_token).startswith("#") for color_token in ColorToken)
 
 
 def test_edge_type_editor_adds_updates_and_removes_a_type(qtbot: object) -> None:
     """専用Widgetからエッジ種類コレクションを追加・編集・削除できる。"""
-    settings = GlobalSettings()
+    settings = ProjectSettings()
     widget = EdgeTypeEditorWidget(settings)
     qtbot.addWidget(widget)
 
@@ -22,7 +24,7 @@ def test_edge_type_editor_adds_updates_and_removes_a_type(qtbot: object) -> None
     widget.color_combo.setCurrentIndex(3)
 
     created_type = settings.edge_types()[-1]
-    assert (created_type.label, created_type.color_hex) == ("支持する", "#0f766e")
+    assert (created_type.label, created_type.color_token) == ("支持する", ColorToken.TEAL)
 
     widget.remove_button.click()
     assert all(edge_type.id != created_type.id for edge_type in settings.edge_types())

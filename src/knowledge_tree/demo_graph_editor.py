@@ -48,9 +48,17 @@ class DemoGraphEditor:
         """初期ViewModelを、デモ操作用の可変状態へ展開する。"""
         self._nodes = {node.id: node for node in graph.nodes}
         self._edges = {edge.id: edge for edge in graph.edges}
-        self._child_combinations = {node.id: ChildCombination.ALL for node in graph.nodes}
-        self._next_node_number = 1
-        self._next_edge_number = 1
+        self._child_combinations = {
+            node.id: ChildCombination(node.badge_text)
+            if node.badge_text in {combination.value for combination in ChildCombination}
+            else ChildCombination.ALL
+            for node in graph.nodes
+        }
+        self._next_node_number = self._next_identifier_number(self._nodes, ("created-node-", "inserted-node-"))
+        self._next_edge_number = self._next_identifier_number(
+            self._edges,
+            ("demo-edge-", "inserted-edge-", "rewired-edge-"),
+        )
 
     def graph(self) -> GraphViewModel:
         """現在のデモ状態をCanvas投入用のViewModelに変換する。"""
@@ -352,3 +360,13 @@ class DemoGraphEditor:
         edge_id = f"{prefix}-{self._next_edge_number}"
         self._next_edge_number += 1
         return edge_id
+
+    def _next_identifier_number(self, items: dict[str, object], prefixes: tuple[str, ...]) -> int:
+        """保存済みIDと重複しない次の連番を返す。"""
+        numbers = [
+            int(item_id.removeprefix(prefix))
+            for item_id in items
+            for prefix in prefixes
+            if item_id.startswith(prefix) and item_id.removeprefix(prefix).isdigit()
+        ]
+        return max(numbers, default=0) + 1

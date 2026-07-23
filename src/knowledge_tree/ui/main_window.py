@@ -1,14 +1,16 @@
 """第1フェーズの MainWindow。メニューはCanvasの外で構築する。"""
 
 from PyQt6.QtCore import QPoint, QPointF, QSignalBlocker, QTimer, Qt
-from PyQt6.QtGui import QAction, QKeySequence
+from PyQt6.QtGui import QAction, QColor, QIcon, QKeySequence, QPixmap
 from PyQt6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QDockWidget, QMainWindow, QMenu, QStatusBar, QToolBar, QVBoxLayout
 
+from knowledge_tree.color_palette import ColorPalette
 from knowledge_tree.demo_data import build_demo_graph
 from knowledge_tree.demo_graph_editor import ChildCombination, DemoGraphEditor
-from knowledge_tree.global_settings import EdgeType, GlobalSettings
+from knowledge_tree.project_settings import EdgeType, ProjectSettings
 from knowledge_tree.graph.graph_canvas_widget import GraphCanvasWidget
 from knowledge_tree.graph.styles import StyleRegistry
+from knowledge_tree.project_storage import ProjectSnapshot, ProjectStorage
 from knowledge_tree.ui.edge_type_editor_widget import EdgeTypeEditorWidget
 from knowledge_tree.ui.property_inspector import PropertyInspector
 
@@ -16,14 +18,17 @@ from knowledge_tree.ui.property_inspector import PropertyInspector
 class MainWindow(QMainWindow):
     """サンプルデータの投入と、Canvasイベントの受け口を担当する。"""
 
-    def __init__(self) -> None:
+    def __init__(self, project_storage: ProjectStorage | None = None, project_name: str | None = None) -> None:
         """デモ用のCanvas、メニュー、外部編集状態を初期化する。"""
         super().__init__()
         self.setWindowTitle("KnowledgeTree - グラフ操作確認")
         self.resize(1200, 760)
+        self._project_storage = project_storage
+        self._project_name = project_name
+        snapshot = self._load_initial_snapshot()
         self.canvas = GraphCanvasWidget(self)
         self.setCentralWidget(self.canvas)
-        self.global_settings = GlobalSettings()
+        self.project_settings = snapshot.settings
         self._register_edge_type_styles()
         self._create_property_inspector()
         self._create_actions()
@@ -31,10 +36,16 @@ class MainWindow(QMainWindow):
         self._create_toolbar()
         self._create_status_bar()
         self._connect_canvas_events()
-        self._demo_graph_editor = DemoGraphEditor(build_demo_graph())
+        self._demo_graph_editor = DemoGraphEditor(snapshot.graph)
         self.canvas.set_graph(self._demo_graph_editor.graph())
         QTimer.singleShot(0, self.canvas.fit_all)
         self.statusBar().showMessage("背景をドラッグして移動できます。ノード辺で新規接続、エッジ端で付け替え・削除できます。")
+
+    def _load_initial_snapshot(self) -> ProjectSnapshot:
+        """保存先が指定された場合はプロジェクトを読み込み、未指定時はデモ状態を返す。"""
+        if self._project_storage is not None and self._project_name is not None:
+            return self._project_storage.load_project(self._project_name)
+        return ProjectSnapshot(build_demo_graph(), ProjectSettings())
 
     def _create_actions(self) -> None:
         """メニューとツールバーで共用するアクションを作成する。"""
@@ -46,9 +57,9 @@ class MainWindow(QMainWindow):
         self.exit_action.setShortcut(QKeySequence.StandardKey.Quit)
         self.exit_action.triggered.connect(self.close)
 
-        self.global_settings_action = QAction("⚙", self)
-        self.global_settings_action.setToolTip("全体設定")
-        self.global_settings_action.triggered.connect(self._show_global_settings)
+        self.project_settings_action = QAction("⚙", self)
+        self.project_settings_action.setToolTip("プロジェクト設定")
+        self.project_settings_action.triggered.connect(self._show_project_settings)
 
     def _create_menu_bar(self) -> None:
         """ファイル・表示メニューを構築する。"""
@@ -62,7 +73,7 @@ class MainWindow(QMainWindow):
         """表示操作用のツールバーを構築する。"""
         toolbar = QToolBar("表示", self)
         toolbar.setMovable(False)
-        toolbar.addAction(self.global_settings_action)
+        toolbar.addAction(self.project_settings_action)
         self.default_edge_label_combo = QComboBox(toolbar)
         self._refresh_default_edge_type_combo()
         toolbar.addWidget(self.default_edge_label_combo)
@@ -70,7 +81,7 @@ class MainWindow(QMainWindow):
 
     def _create_property_inspector(self) -> None:
         """Canvasの選択対象を編集する右側ドックを作成する。"""
-        self.inspector = PropertyInspector(self.global_settings, self)
+        self.inspector = PropertyInspector(self.project_settings, self)
         self.inspector_dock = QDockWidget("インスペクタ", self)
         self.inspector_dock.setObjectName("property-inspector-dock")
         self.inspector_dock.setWidget(self.inspector)
@@ -86,13 +97,13 @@ class MainWindow(QMainWindow):
         """操作結果を表示するステータスバーを設定する。"""
         self.setStatusBar(QStatusBar(self))
 
-    def _show_global_settings(self) -> None:
-        """エッジ種類コレクションを編集する、永続化前の全体設定ダイアログを表示する。"""
+    def _show_project_settings(self) -> None:
+        """エッジ種類コレクションを編集するプロジェクト設定ダイアログを表示する。"""
         dialog = QDialog(self)
-        dialog.setWindowTitle("全体設定")
+        dialog.setWindowTitle("プロジェクト設定")
         dialog.resize(420, 420)
-        editor = EdgeTypeEditorWidget(self.global_settings, dialog)
-        editor.edge_types_changed.connect(self._apply_global_settings_changes)
+        editor = EdgeTypeEditorWidget(self.project_settings, dialog)
+        editor.edge_types_changed.connect(self._apply_project_settings_changes)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, parent=dialog)
         buttons.rejected.connect(dialog.reject)
         layout = QVBoxLayout(dialog)
@@ -128,7 +139,7 @@ class MainWindow(QMainWindow):
         current_center = self.canvas.mapToScene(self.canvas.viewport().rect().center())
         self.canvas.centerOn(current_center + top_left_position - current_top_left)
 
-    def _apply_global_settings_changes(self) -> None:
+    def _apply_project_settings_changes(self) -> None:
         """変更されたエッジ種類を、ツールバーと現在のCanvas表示へ反映する。"""
         self._register_edge_type_styles()
         self._refresh_default_edge_type_combo()
@@ -136,18 +147,25 @@ class MainWindow(QMainWindow):
         self._refresh_demo_graph()
 
     def _register_edge_type_styles(self) -> None:
-        """全体設定のエッジ種類を、Canvasの汎用スタイルキーとして登録する。"""
-        for edge_type in self.global_settings.edge_types():
-            StyleRegistry.set_edge_type_color(self._edge_type_style_key(edge_type), edge_type.color_hex)
+        """プロジェクト設定のエッジ種類を、Canvasの汎用スタイルキーとして登録する。"""
+        for edge_type in self.project_settings.edge_types():
+            StyleRegistry.set_edge_type_color(
+                self._edge_type_style_key(edge_type),
+                ColorPalette.color_hex(edge_type.color_token),
+            )
 
     def _refresh_default_edge_type_combo(self) -> None:
-        """全体設定のエッジ種類から、新規エッジ用コンボボックスを再構築する。"""
+        """プロジェクト設定のエッジ種類から、新規エッジ用コンボボックスを再構築する。"""
         previous_edge_type_id = self.default_edge_label_combo.currentData() if hasattr(self, "default_edge_label_combo") else None
         blocker = QSignalBlocker(self.default_edge_label_combo)
         self.default_edge_label_combo.clear()
         self.default_edge_label_combo.addItem("（ラベルなし）", None)
-        for edge_type in self.global_settings.edge_types():
-            self.default_edge_label_combo.addItem(edge_type.label, edge_type.id)
+        for edge_type in self.project_settings.edge_types():
+            self.default_edge_label_combo.addItem(
+                self._edge_type_icon(edge_type),
+                edge_type.label,
+                edge_type.id,
+            )
         index = self.default_edge_label_combo.findData(previous_edge_type_id)
         self.default_edge_label_combo.setCurrentIndex(index if index >= 0 else 0)
         del blocker
@@ -244,6 +262,7 @@ class MainWindow(QMainWindow):
         """確定したノード位置を外部デモ状態へ反映し、結果を表示する。"""
         self._demo_graph_editor.update_node_position(node_id, new_position.x(), new_position.y())
         self.canvas.update_node(self._demo_graph_editor.node_view_model(node_id))
+        self._persist_project()
         self.statusBar().showMessage(
             f"ノード {node_id} を移動: ({old_position.x():.0f}, {old_position.y():.0f}) → ({new_position.x():.0f}, {new_position.y():.0f})"
         )
@@ -251,6 +270,7 @@ class MainWindow(QMainWindow):
     def _show_label_move(self, edge_id: str, old_offset: QPointF, new_offset: QPointF) -> None:
         """確定したラベル位置を外部デモ状態へ反映し、結果を表示する。"""
         self._demo_graph_editor.update_edge_label_offset(edge_id, new_offset.x(), new_offset.y())
+        self._persist_project()
         self.statusBar().showMessage(
             f"エッジラベル {edge_id} を移動: ({old_offset.x():.0f}, {old_offset.y():.0f}) → ({new_offset.x():.0f}, {new_offset.y():.0f})"
         )
@@ -301,6 +321,7 @@ class MainWindow(QMainWindow):
             return
         self.canvas.update_edge(self._demo_graph_editor.edge_view_model(edge_id))
         self.canvas.select_edge(edge_id)
+        self._persist_project()
         self.statusBar().showMessage(f"新しいエッジ {edge_id} を追加しました。")
 
     def _create_demo_node_from_connection(self, source_node_id: str, scene_position: QPointF) -> None:
@@ -325,6 +346,7 @@ class MainWindow(QMainWindow):
         node_id = self._demo_graph_editor.create_question_node_at(scene_position.x(), scene_position.y())
         self.canvas.update_node(self._demo_graph_editor.node_view_model(node_id))
         self.canvas.select_node(node_id)
+        self._persist_project()
         self.statusBar().showMessage(f"質問ノード {node_id} を追加しました。")
 
     def _disconnect_demo_edge(self, edge_id: str) -> None:
@@ -332,6 +354,7 @@ class MainWindow(QMainWindow):
         if self._demo_graph_editor.remove_edges([edge_id]) == 0:
             return
         self.canvas.remove_edge(edge_id)
+        self._persist_project()
         self.statusBar().showMessage(f"エッジ {edge_id} を切断しました。")
 
     def _reconnect_demo_edge(self, edge_id: str, source_node_id: str, target_node_id: str) -> None:
@@ -341,11 +364,13 @@ class MainWindow(QMainWindow):
             return
         self.canvas.update_edge(self._demo_graph_editor.edge_view_model(edge_id))
         self.canvas.select_edge(edge_id)
+        self._persist_project()
         self.statusBar().showMessage(f"エッジ {edge_id} を付け替えました。")
 
     def _refresh_demo_graph(self) -> None:
         """外部デモ状態から再構築したViewModelをCanvasへ反映する。"""
         self.canvas.set_graph(self._demo_graph_editor.graph())
+        self._persist_project()
 
     def _update_question_from_inspector(
         self,
@@ -360,15 +385,22 @@ class MainWindow(QMainWindow):
             return
         self._demo_graph_editor.update_question_node(node_id, title, body, combination)
         self.canvas.update_node(self._demo_graph_editor.node_view_model(node_id))
+        self._persist_project()
 
     def _update_edge_type_from_inspector(self, edge_id: str, edge_type_id: str | None) -> None:
         """インスペクタの種類選択を、エッジのラベルと色へ即時反映する。"""
-        edge_type = next((edge_type for edge_type in self.global_settings.edge_types() if edge_type.id == edge_type_id), None)
+        edge_type = next((edge_type for edge_type in self.project_settings.edge_types() if edge_type.id == edge_type_id), None)
         if edge_type is None:
             self._demo_graph_editor.update_edge_type(edge_id, "", "default")
         else:
             self._demo_graph_editor.update_edge_type(edge_id, edge_type.label, self._edge_type_style_key(edge_type))
         self.canvas.update_edge(self._demo_graph_editor.edge_view_model(edge_id))
+        self._persist_project()
+
+    def _persist_project(self) -> None:
+        """アクティブなプロジェクトがある場合だけ、現在のグラフと設定を自動保存する。"""
+        if self._project_storage is not None and self._project_name is not None:
+            self._project_storage.save_project(self._project_name, ProjectSnapshot(self._demo_graph_editor.graph(), self.project_settings))
 
     def _default_edge_label(self) -> str:
         """ツールバーで指定された新規エッジの既定ラベルを返す。"""
@@ -378,8 +410,14 @@ class MainWindow(QMainWindow):
     def _selected_edge_type(self) -> EdgeType | None:
         """ツールバーで選択中のエッジ種類を返す。ラベルなしならNoneを返す。"""
         edge_type_id = self.default_edge_label_combo.currentData()
-        return next((edge_type for edge_type in self.global_settings.edge_types() if edge_type.id == edge_type_id), None)
+        return next((edge_type for edge_type in self.project_settings.edge_types() if edge_type.id == edge_type_id), None)
 
     def _edge_type_style_key(self, edge_type: EdgeType) -> str:
-        """全体設定のエッジ種類IDを、Canvas用の汎用スタイルキーへ変換する。"""
+        """プロジェクト設定のエッジ種類IDを、Canvas用の汎用スタイルキーへ変換する。"""
         return f"global-edge-type:{edge_type.id}"
+
+    def _edge_type_icon(self, edge_type: EdgeType) -> QIcon:
+        """エッジ種類の色トークンを示す小さな四角形アイコンを作成する。"""
+        pixmap = QPixmap(14, 14)
+        pixmap.fill(QColor(ColorPalette.color_hex(edge_type.color_token)))
+        return QIcon(pixmap)

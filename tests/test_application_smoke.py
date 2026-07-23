@@ -1,7 +1,10 @@
 """アプリケーションUIの最小スモークテスト。"""
 
+from pathlib import Path
+
 from knowledge_tree.ui.main_window import MainWindow
 from PyQt6.QtCore import QPointF
+from knowledge_tree.project_storage import ProjectStorage
 
 
 def test_main_window_displays_the_canvas(qtbot: object) -> None:
@@ -62,6 +65,16 @@ def test_toolbar_default_label_is_used_for_new_edges(qtbot: object) -> None:
     assert (edge.label, edge.style_key) == ("contributesTo", "global-edge-type:contributes-to")
 
 
+def test_toolbar_edge_type_combo_displays_color_icons(qtbot: object) -> None:
+    """ツールバーの関係ラベル候補には、各種類の色見本を表示する。"""
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    refines_index = window.default_edge_label_combo.findData("refines")
+
+    assert window.default_edge_label_combo.itemIcon(refines_index).isNull() is False
+
+
 def test_inspector_can_be_reopened_from_the_view_menu_and_double_click_handlers(qtbot: object) -> None:
     """閉じたインスペクタは表示メニューとダブルクリック操作で再表示できる。"""
     window = MainWindow()
@@ -110,3 +123,17 @@ def test_default_edge_type_combo_can_create_an_unlabeled_edge(qtbot: object) -> 
 
     edge = next(edge for edge in window._demo_graph_editor.graph().edges if edge.source_node_id == "question" and edge.target_node_id == "isolated")
     assert (edge.label, edge.style_key) == ("", "default")
+
+
+def test_main_window_autosaves_changes_when_opened_from_a_project(qtbot: object, tmp_path: Path) -> None:
+    """プロジェクトとして開いたWindowの編集は、明示保存なしで次回読込へ反映される。"""
+    storage = ProjectStorage(tmp_path / "userdata")
+    storage.create_project("自動保存")
+    window = MainWindow(storage, "自動保存")
+    qtbot.addWidget(window)
+
+    window._show_node_move("isolated", QPointF(80.0, 500.0), QPointF(620.0, 430.0))
+
+    loaded = storage.load_project("自動保存")
+    isolated_node = next(node for node in loaded.graph.nodes if node.id == "isolated")
+    assert (isolated_node.position_x, isolated_node.position_y) == (620.0, 430.0)

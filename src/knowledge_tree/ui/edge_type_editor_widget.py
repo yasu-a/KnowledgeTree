@@ -4,7 +4,8 @@ from PyQt6.QtCore import QSignalBlocker, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QIcon, QPixmap
 from PyQt6.QtWidgets import QComboBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QToolButton, QVBoxLayout, QWidget
 
-from knowledge_tree.global_settings import EdgeType, GlobalSettings, NATURAL_PALETTE
+from knowledge_tree.color_palette import ColorPalette, ColorToken
+from knowledge_tree.project_settings import EdgeType, ProjectSettings
 
 
 class EdgeTypeEditorWidget(QWidget):
@@ -12,7 +13,7 @@ class EdgeTypeEditorWidget(QWidget):
 
     edge_types_changed = pyqtSignal()
 
-    def __init__(self, settings: GlobalSettings, parent: QWidget | None = None) -> None:
+    def __init__(self, settings: ProjectSettings, parent: QWidget | None = None) -> None:
         """指定設定を編集するリストと詳細フォームを初期化する。"""
         super().__init__(parent)
         self._settings = settings
@@ -35,7 +36,7 @@ class EdgeTypeEditorWidget(QWidget):
         blocker = QSignalBlocker(self.list_widget)
         self.list_widget.clear()
         for edge_type in self._settings.edge_types():
-            item = QListWidgetItem(self._edge_type_icon(edge_type.color_hex), edge_type.label)
+            item = QListWidgetItem(self._edge_type_icon(edge_type.color_token), edge_type.label)
             item.setData(Qt.ItemDataRole.UserRole, edge_type.id)
             self.list_widget.addItem(item)
         del blocker
@@ -47,8 +48,12 @@ class EdgeTypeEditorWidget(QWidget):
 
     def _populate_palette(self) -> None:
         """RGB入力を使わず、定義済み自然配色だけをコンボボックスへ追加する。"""
-        for color in NATURAL_PALETTE:
-            self.color_combo.addItem(self._edge_type_icon(color.hex_color), color.name, color.hex_color)
+        for color_token in ColorToken:
+            self.color_combo.addItem(
+                self._edge_type_icon(color_token),
+                color_token.display_name,
+                color_token,
+            )
 
     def _build_layout(self) -> None:
         """リスト、追加削除ボタン、詳細フォームを縦に配置する。"""
@@ -83,7 +88,7 @@ class EdgeTypeEditorWidget(QWidget):
         self.remove_button.setEnabled(edge_type is not None)
         if edge_type is not None:
             self.label_edit.setText(edge_type.label)
-            self.color_combo.setCurrentIndex(self.color_combo.findData(edge_type.color_hex))
+            self.color_combo.setCurrentIndex(self.color_combo.findData(edge_type.color_token))
         else:
             self.label_edit.clear()
         del blockers
@@ -116,12 +121,12 @@ class EdgeTypeEditorWidget(QWidget):
         if edge_type is None:
             return
         label = self.label_edit.text().strip() or "新しい関係"
-        color_hex = self.color_combo.currentData()
-        if not isinstance(color_hex, str):
+        color_token = self.color_combo.currentData()
+        if not isinstance(color_token, ColorToken):
             return
-        self._settings.update_edge_type(edge_type.id, label, color_hex)
+        self._settings.update_edge_type(edge_type.id, label, color_token)
         self.list_widget.currentItem().setText(label)
-        self.list_widget.currentItem().setIcon(self._edge_type_icon(color_hex))
+        self.list_widget.currentItem().setIcon(self._edge_type_icon(color_token))
         self.edge_types_changed.emit()
 
     def _selected_edge_type(self, item: QListWidgetItem | None) -> EdgeType | None:
@@ -131,8 +136,8 @@ class EdgeTypeEditorWidget(QWidget):
         edge_type_id = item.data(Qt.ItemDataRole.UserRole)
         return next((edge_type for edge_type in self._settings.edge_types() if edge_type.id == edge_type_id), None)
 
-    def _edge_type_icon(self, color_hex: str) -> QIcon:
-        """指定色を示す小さな四角形アイコンを作成する。"""
+    def _edge_type_icon(self, color_token: ColorToken) -> QIcon:
+        """指定色トークンを示す小さな四角形アイコンを作成する。"""
         pixmap = QPixmap(14, 14)
-        pixmap.fill(QColor(color_hex))
+        pixmap.fill(QColor(ColorPalette.color_hex(color_token)))
         return QIcon(pixmap)
