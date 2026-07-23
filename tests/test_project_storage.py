@@ -11,6 +11,7 @@ from knowledge_tree.demo_graph_editor import ChildCombination, DemoGraphEditor
 from knowledge_tree.project_storage import ProjectSnapshot, ProjectStorage
 from knowledge_tree.node_kind import NodeKind
 from knowledge_tree.reference_catalog import ReferenceKind, ReferenceLink
+from knowledge_tree.project_format_version import CURRENT_PROJECT_FORMAT_VERSION
 
 
 def test_creating_a_project_writes_json_files_and_a_cp932_literature_csv(tmp_path: Path) -> None:
@@ -23,6 +24,7 @@ def test_creating_a_project_writes_json_files_and_a_cp932_literature_csv(tmp_pat
     assert len(snapshot.graph.nodes) >= 1
     assert (project_directory / "project_settings.json").exists()
     assert (project_directory / "graph.json").exists()
+    assert json.loads((project_directory / "project.json").read_text(encoding="utf-8")) == {"format_version": {"major": 0, "minor": 1}}
     assert (project_directory / "references" / "papers.csv").read_text(encoding="cp932").startswith("id,title,authors")
 
 

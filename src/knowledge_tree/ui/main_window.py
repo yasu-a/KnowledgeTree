@@ -5,6 +5,7 @@ from PyQt6.QtGui import QAction, QCloseEvent, QColor, QIcon, QKeySequence, QPixm
 from PyQt6.QtWidgets import QDialogButtonBox, QDockWidget, QMainWindow, QMenu, QStatusBar, QToolBar, QVBoxLayout
 
 from knowledge_tree.color_palette import ColorPalette
+from knowledge_tree.application_version import APPLICATION_VERSION
 from knowledge_tree.demo_graph_editor import ChildCombination, DemoGraphEditor
 from knowledge_tree.graph.graph_canvas_widget import GraphCanvasWidget
 from knowledge_tree.graph.styles import StyleRegistry
@@ -16,6 +17,8 @@ from knowledge_tree.ui.edge_type_editor_widget import EdgeTypeEditorWidget
 from knowledge_tree.ui.property_inspector import PropertyInspector
 from knowledge_tree.ui.reference_catalog_dialog import ReferenceCatalogDialog
 from knowledge_tree.ui.save_cancel_dialog import SaveCancelDialog
+from knowledge_tree.ui.about_dialog import AboutDialog
+from knowledge_tree.project_format_version import CURRENT_PROJECT_FORMAT_VERSION
 
 
 class MainWindow(QMainWindow):
@@ -30,7 +33,7 @@ class MainWindow(QMainWindow):
         """指定プロジェクトのCanvas、メニュー、編集状態を初期化する。"""
         super().__init__()
         self._project_session = project_session or ProjectSession.demo()
-        self.setWindowTitle(f"KnowledgeTree - {self._project_session.project_name}")
+        self.setWindowTitle(f"KnowledgeTree {APPLICATION_VERSION} - {self._project_session.project_name}")
         self.resize(1200, 760)
         self.canvas = GraphCanvasWidget(self)
         self.setCentralWidget(self.canvas)
@@ -71,6 +74,9 @@ class MainWindow(QMainWindow):
         self.reference_catalog_action.setToolTip("文献を管理")
         self.reference_catalog_action.triggered.connect(lambda: self._show_reference_catalog())
 
+        self.about_action = QAction("KnowledgeTreeについて", self)
+        self.about_action.triggered.connect(self._show_about)
+
     def _create_menu_bar(self) -> None:
         """ファイル・表示メニューを構築する。"""
         file_menu = self.menuBar().addMenu("ファイル")
@@ -82,6 +88,8 @@ class MainWindow(QMainWindow):
         view_menu = self.menuBar().addMenu("表示")
         view_menu.addAction(self.fit_all_action)
         view_menu.addAction(self.inspector_visibility_action)
+        help_menu = self.menuBar().addMenu("ヘルプ")
+        help_menu.addAction(self.about_action)
 
     def _create_toolbar(self) -> None:
         """表示操作用のツールバーを構築する。"""
@@ -141,6 +149,10 @@ class MainWindow(QMainWindow):
         dialog.catalog_changed.connect(self._sync_reference_nodes_from_catalog)
         dialog.exec()
         self._show_selection(self.canvas.selected_node_ids(), self.canvas.selected_edge_ids())
+
+    def _show_about(self) -> None:
+        """アプリケーションとプロジェクト保存形式のバージョン情報を表示する。"""
+        AboutDialog(APPLICATION_VERSION, CURRENT_PROJECT_FORMAT_VERSION, self).exec()
 
     def _toggle_inspector_visibility(self, visible: bool) -> None:
         """表示メニューからインスペクタを切り替え、Canvas左上のscene位置を維持する。"""

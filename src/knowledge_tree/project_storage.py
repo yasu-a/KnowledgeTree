@@ -11,6 +11,8 @@ from knowledge_tree.node_kind import NodeKind
 from knowledge_tree.reference_catalog import ReferenceCatalog, ReferenceKind, ReferenceLink
 from knowledge_tree.color_palette import ColorToken
 from knowledge_tree.project_settings import EdgeType, ProjectSettings
+from knowledge_tree.project_format_version import CURRENT_PROJECT_FORMAT_VERSION, ProjectCompatibility, ProjectFormatVersion
+from knowledge_tree.project_migrator import ProjectMigrator
 from knowledge_tree.viewmodels.graph_viewmodels import GraphEdgeViewModel, GraphNodeViewModel, GraphViewModel
 
 
@@ -25,10 +27,11 @@ class ProjectSnapshot:
 class ProjectStorage:
     """userdata/projects配下のプロジェクト作成・読込・保存を担当する。"""
 
-    def __init__(self, userdata_directory: Path) -> None:
+    def __init__(self, userdata_directory: Path, project_migrator: ProjectMigrator | None = None) -> None:
         """userdataディレクトリと配下のprojectsディレクトリを設定する。"""
         self._userdata_directory = userdata_directory
         self._projects_directory = userdata_directory / "projects"
+        self._project_migrator = project_migrator or ProjectMigrator()
 
     def project_names(self) -> tuple[str, ...]:
         """有効なプロジェクトフォルダ名を昇順で返す。"""
@@ -52,6 +55,7 @@ class ProjectStorage:
     def load_project(self, project_name: str) -> ProjectSnapshot:
         """指定プロジェクトの設定JSONとグラフJSONを読み込む。"""
         project_directory = self._project_directory(project_name)
+        self._migrate_project_if_needed(project_directory)
         settings_data = self._read_json(project_directory / "project_settings.json")
         graph_data = self._read_json(project_directory / "graph.json")
         return ProjectSnapshot(self._graph_from_data(graph_data), self._settings_from_data(settings_data))
@@ -79,6 +83,7 @@ class ProjectStorage:
             raise ValueError("保存対象のプロジェクトが見つかりません。")
         self._write_json(project_directory / "project_settings.json", self._settings_to_data(snapshot.settings))
         self._write_json(project_directory / "graph.json", self._graph_to_data(snapshot.graph))
+        self._write_project_manifest(project_directory, CURRENT_PROJECT_FORMAT_VERSION)
         ReferenceCatalog(project_directory).ensure_files()
 
     def _project_directory(self, project_name: str) -> Path:
@@ -97,6 +102,39 @@ class ProjectStorage:
         if not isinstance(data, dict):
             raise ValueError(f"JSONの形式が不正です: {path.name}")
         return data
+
+    def _migrate_project_if_needed(self, project_directory: Path) -> None:
+        """プロジェクト形式版を確認し、major差があればMigrationを適用する。"""
+        source_version = self._read_project_format_version(project_directory)
+        compatibility = source_version.compatibility_with(CURRENT_PROJECT_FORMAT_VERSION)
+        if compatibility == ProjectCompatibility.UNSUPPORTED_FUTURE_VERSION:
+            raise ValueError(
+                f"このアプリはプロジェクト形式 {source_version} を読み込めません。対応形式は {CURRENT_PROJECT_FORMAT_VERSION} です。"
+            )
+        if compatibility == ProjectCompatibility.MIGRATION_REQUIRED:
+            self._project_migrator.migrate(project_directory, source_version, CURRENT_PROJECT_FORMAT_VERSION)
+        self._write_project_manifest(project_directory, CURRENT_PROJECT_FORMAT_VERSION)
+
+    def _read_project_format_version(self, project_directory: Path) -> ProjectFormatVersion:
+        """project.jsonから形式版を読み込む。マニフェストなしは現在形式として扱う。"""
+        manifest_path = project_directory / "project.json"
+        if not manifest_path.exists():
+            return CURRENT_PROJECT_FORMAT_VERSION
+        data = self._read_json(manifest_path)
+        version_data = data.get("format_version")
+        if not isinstance(version_data, dict):
+            raise ValueError("project.jsonのformat_versionが不正です。")
+        major, minor = version_data.get("major"), version_data.get("minor")
+        if not isinstance(major, int) or not isinstance(minor, int) or major < 0 or minor < 0:
+            raise ValueError("project.jsonのformat_versionが不正です。")
+        return ProjectFormatVersion(major, minor)
+
+    def _write_project_manifest(self, project_directory: Path, version: ProjectFormatVersion) -> None:
+        """現在のプロジェクト保存形式版をproject.jsonへ原子的に保存する。"""
+        self._write_json(
+            project_directory / "project.json",
+            {"format_version": {"major": version.major, "minor": version.minor}},
+        )
 
     def _write_json(self, path: Path, data: dict[str, object]) -> None:
         """UTF-8 JSONを一時ファイル経由で原子的に保存する。"""

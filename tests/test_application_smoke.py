@@ -4,10 +4,14 @@ from pathlib import Path
 
 from knowledge_tree.ui.main_window import MainWindow
 from PyQt6.QtCore import QPointF
+from PyQt6.QtWidgets import QLabel
 from knowledge_tree.project_session import ProjectSession
 from knowledge_tree.project_storage import ProjectStorage
 from knowledge_tree.reference_catalog import Book, ReferenceKind, ReferenceLink
 from knowledge_tree import application as application_module
+from knowledge_tree.application_version import APPLICATION_VERSION
+from knowledge_tree.project_format_version import CURRENT_PROJECT_FORMAT_VERSION
+from knowledge_tree.ui.about_dialog import AboutDialog
 
 
 def test_main_window_displays_the_canvas(qtbot: object) -> None:
@@ -18,6 +22,18 @@ def test_main_window_displays_the_canvas(qtbot: object) -> None:
 
     assert window.windowTitle().startswith("KnowledgeTree")
     assert window.canvas.selected_node_ids() == []
+
+
+def test_about_dialog_displays_current_application_and_project_format_versions(qtbot: object) -> None:
+    """Aboutダイアログは現在のアプリ版とプロジェクト形式版を表示する。"""
+    dialog = AboutDialog(APPLICATION_VERSION, CURRENT_PROJECT_FORMAT_VERSION)
+    qtbot.addWidget(dialog)
+
+    labels = [label.text() for label in dialog.findChildren(QLabel)]
+
+    assert any("0.1" in text and "アプリケーション" in text for text in labels)
+    assert any("0.1" in text and "プロジェクト形式" in text for text in labels)
+    assert any("https://github.com/yasu-a/KnowledgeTree" in text for text in labels)
 
 
 def test_application_run_initializes_the_main_startup_path(monkeypatch: object, tmp_path: Path) -> None:
@@ -31,6 +47,10 @@ def test_application_run_initializes_the_main_startup_path(monkeypatch: object, 
         def setApplicationName(self, application_name: str) -> None:
             """設定されたアプリケーション名を記録する。"""
             self.application_name = application_name
+
+        def setApplicationVersion(self, application_version: str) -> None:
+            """設定されたアプリケーション版を記録する。"""
+            assert application_version == "0.1"
 
         def exec(self) -> int:
             """テスト用の終了コードを返す。"""

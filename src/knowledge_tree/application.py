@@ -6,6 +6,7 @@ from pathlib import Path
 from PyQt6.QtWidgets import QApplication
 
 from knowledge_tree.application_navigator import ApplicationNavigator
+from knowledge_tree.application_version import APPLICATION_VERSION
 from knowledge_tree.global_settings import GlobalSettingsStore
 from knowledge_tree.project_storage import ProjectStorage
 from knowledge_tree.session_state import SessionStateStore
@@ -15,6 +16,7 @@ def run() -> int:
     """KnowledgeTree を起動する。"""
     application = QApplication(sys.argv)
     application.setApplicationName("KnowledgeTree")
+    application.setApplicationVersion(str(APPLICATION_VERSION))
 
     userdata_directory = Path.cwd() / "userdata"
     navigator = ApplicationNavigator(
