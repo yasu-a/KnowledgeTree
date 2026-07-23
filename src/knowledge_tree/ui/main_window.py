@@ -481,9 +481,14 @@ class MainWindow(QMainWindow):
 
     def _update_reference_from_inspector(self, node_id: str, reference_link: ReferenceLink | None) -> None:
         """インスペクタで選んだ文献をノードへ関連付け、表示内容をカタログから同期する。"""
+        if reference_link is None:
+            self._demo_graph_editor.update_reference_node(node_id, None, "文献を選択してください", None)
+            self.canvas.update_node(self._demo_graph_editor.node_view_model(node_id))
+            self._persist_project()
+            return
         record = self._reference_for_link(reference_link)
         if record is None:
-            self._demo_graph_editor.update_reference_node(node_id, None, "文献を選択してください", None)
+            self._show_missing_reference_on_node(node_id, reference_link)
         else:
             self._demo_graph_editor.update_reference_node(node_id, reference_link, record.title, self._reference_secondary_text(record))
         self.canvas.update_node(self._demo_graph_editor.node_view_model(node_id))
@@ -500,11 +505,20 @@ class MainWindow(QMainWindow):
                 continue
             record = self._reference_for_link(node.reference_link)
             if record is None:
-                self._demo_graph_editor.update_reference_node(node.id, None, "文献を選択してください", None)
+                self._show_missing_reference_on_node(node.id, node.reference_link)
             else:
                 self._demo_graph_editor.update_reference_node(node.id, node.reference_link, record.title, self._reference_secondary_text(record))
             self.canvas.update_node(self._demo_graph_editor.node_view_model(node.id))
         self._persist_project()
+
+    def _show_missing_reference_on_node(self, node_id: str, reference_link: ReferenceLink) -> None:
+        """削除済み文献へのリンクを保持したまま、ノードを欠損状態として表示する。"""
+        self._demo_graph_editor.update_reference_node(
+            node_id,
+            reference_link,
+            "削除された文献",
+            "文献マスタから削除されました。別の文献を選択するか、文献マスタに追加してください。",
+        )
 
     def _reference_choices(self) -> tuple[tuple[ReferenceLink, str], ...]:
         """種類別文献ドメインから、インスペクタ選択用の文献リンク一覧を作る。"""

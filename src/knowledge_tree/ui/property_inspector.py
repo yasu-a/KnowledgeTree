@@ -104,6 +104,11 @@ class PropertyInspector(QWidget):
         self.reference_combo.addItem("（未選択）", None)
         for link, title in choices:
             self.reference_combo.addItem(f"[{link.kind.value.title()}] {title}", link)
+        if node.reference_link is not None and all(link != node.reference_link for link, _ in choices):
+            self.reference_combo.addItem(
+                f"[{node.reference_link.kind.value.title()}] （削除された文献）",
+                node.reference_link,
+            )
         selected_index = next(
             (
                 index

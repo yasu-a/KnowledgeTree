@@ -221,3 +221,29 @@ def test_reference_node_is_created_unselected_and_can_select_a_catalog_record(qt
     window.canvas.select_node(node_id)
 
     assert window.inspector.reference_combo.currentData() == ReferenceLink(ReferenceKind.BOOK, record.id)
+
+
+def test_reference_node_keeps_a_link_when_its_catalog_record_is_deleted(qtbot: object, tmp_path: Path) -> None:
+    """文献マスタから消えた参照先も、ノードはリンクを失わず欠損状態として表示する。"""
+    storage = ProjectStorage(tmp_path / "userdata")
+    storage.create_project("欠損文献")
+    session = ProjectSession.open(storage, "欠損文献")
+    link = ReferenceLink(ReferenceKind.BOOK, "book-001")
+    session.reference_catalog.replace_books((Book(link.id, "削除される書籍"),))
+    window = MainWindow(session)
+    qtbot.addWidget(window)
+
+    window._create_reference_node(QPointF(600.0, 400.0))
+    node_id = window.canvas.selected_node_ids()[0]
+    window._update_reference_from_inspector(node_id, link)
+    session.reference_catalog.replace_books(())
+    window._sync_reference_nodes_from_catalog()
+    updated = window._demo_graph_editor.node_view_model(node_id)
+    window.canvas.clear_selection()
+    window.canvas.select_node(node_id)
+
+    assert updated.reference_link == link
+    assert updated.text == "削除された文献"
+    assert updated.badge_text == "Book"
+    assert window.inspector.reference_combo.currentData() == link
+    assert "削除された文献" in window.inspector.reference_combo.currentText()
