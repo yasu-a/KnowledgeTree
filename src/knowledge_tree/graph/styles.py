@@ -62,3 +62,14 @@ class StyleRegistry:
             round(color.blue() * 0.12 + 255 * 0.88),
         )
         cls._edge_styles[style_key] = EdgeStyle(color, color.darker(130), label_background)
+
+    @classmethod
+    def set_node_type_color(cls, style_key: str, color_hex: str) -> None:
+        """設定画面で選んだ色を、指定ノード種類用の描画スタイルとして登録する。"""
+        color = QColor(color_hex)
+        background = QColor(
+            round(color.red() * 0.10 + 255 * 0.90),
+            round(color.green() * 0.10 + 255 * 0.90),
+            round(color.blue() * 0.10 + 255 * 0.90),
+        )
+        cls._node_styles[style_key] = NodeStyle(background, color, color.darker(180), color.darker(130), color.darker(130))

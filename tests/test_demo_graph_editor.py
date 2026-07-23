@@ -150,7 +150,7 @@ def test_create_question_node_at_adds_an_unconnected_question() -> None:
     graph = editor.graph()
 
     node = next(node for node in graph.nodes if node.id == node_id)
-    assert (node.position_x, node.position_y, node.badge_text) == (402.5, 507.5, "AND")
+    assert (node.position_x, node.position_y, node.badge_text) == (402.5, 507.5, None)
     assert all(node_id not in (edge.source_node_id, edge.target_node_id) for edge in graph.edges)
 
 

@@ -1,8 +1,9 @@
 """ApplicationNavigatorによる複数プロジェクト管理を検証する。"""
 
 from pathlib import Path
+import json
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from knowledge_tree.application_navigator import ApplicationNavigator
 from knowledge_tree.global_settings import GlobalSettings, GlobalSettingsStore
@@ -82,3 +83,47 @@ def test_global_settings_dialog_returns_the_selected_startup_behavior(qtbot: obj
     dialog.reopen_last_project_check.setChecked(False)
 
     assert dialog.settings().reopen_last_project is False
+    dialog.discard()
+
+
+def test_closing_a_dirty_save_cancel_dialog_confirms_discard(qtbot: object, monkeypatch: object) -> None:
+    """×で閉じる場合、未保存の全体設定は破棄確認を通過したときだけ閉じる。"""
+    dialog = GlobalSettingsDialog(GlobalSettings())
+    qtbot.addWidget(dialog)
+    dialog.show()
+    dialog.reopen_last_project_check.setChecked(False)
+    monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.StandardButton.Cancel)
+
+    dialog.close()
+
+    assert dialog.isVisible() is True
+    monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.StandardButton.Discard)
+    dialog.close()
+    assert dialog.isVisible() is False
+
+
+def test_navigator_start_returns_false_when_no_project_window_is_opened(tmp_path: Path) -> None:
+    """初回一覧を閉じてプロジェクトを開かなければ、起動処理はイベントループ開始を要求しない。"""
+    navigator, _, _ = _navigator(tmp_path)
+    navigator.show_project_list = lambda parent=None: None  # type: ignore[method-assign]
+
+    assert navigator.start() is False
+
+
+def test_startup_opens_a_project_with_legacy_reference_id_data(qtbot: object, tmp_path: Path) -> None:
+    """起動経路は旧reference_idを含む既存プロジェクトも移行して開ける。"""
+    navigator, storage, session_store = _navigator(tmp_path)
+    storage.create_project("旧形式")
+    graph_path = tmp_path / "userdata" / "projects" / "旧形式" / "graph.json"
+    graph_data = json.loads(graph_path.read_text(encoding="utf-8"))
+    evidence = next(node for node in graph_data["nodes"] if node["id"] == "evidence")
+    evidence.pop("reference_link")
+    evidence["reference_id"] = "paper-001"
+    graph_path.write_text(json.dumps(graph_data, ensure_ascii=False), encoding="utf-8")
+    session_store.save(SessionState("旧形式"))
+
+    assert navigator.start() is True
+    window = navigator.open_project_names()
+    assert window == ("旧形式",)
+    navigator._windows["旧形式"].close()
+    qtbot.wait(10)

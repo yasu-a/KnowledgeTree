@@ -2,7 +2,7 @@
 
 from PyQt6.QtCore import QEvent, QPoint, QPointF, QSignalBlocker, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QCloseEvent, QColor, QIcon, QKeySequence, QPixmap
-from PyQt6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QDockWidget, QMainWindow, QMenu, QStatusBar, QToolBar, QVBoxLayout
+from PyQt6.QtWidgets import QDialogButtonBox, QDockWidget, QMainWindow, QMenu, QStatusBar, QToolBar, QVBoxLayout
 
 from knowledge_tree.color_palette import ColorPalette
 from knowledge_tree.demo_graph_editor import ChildCombination, DemoGraphEditor
@@ -10,8 +10,12 @@ from knowledge_tree.graph.graph_canvas_widget import GraphCanvasWidget
 from knowledge_tree.graph.styles import StyleRegistry
 from knowledge_tree.project_session import ProjectSession
 from knowledge_tree.project_settings import EdgeType
+from knowledge_tree.node_kind import NodeKind
+from knowledge_tree.reference_catalog import Book, Paper, ReferenceKind, ReferenceLink, Website
 from knowledge_tree.ui.edge_type_editor_widget import EdgeTypeEditorWidget
 from knowledge_tree.ui.property_inspector import PropertyInspector
+from knowledge_tree.ui.reference_catalog_dialog import ReferenceCatalogDialog
+from knowledge_tree.ui.save_cancel_dialog import SaveCancelDialog
 
 
 class MainWindow(QMainWindow):
@@ -63,11 +67,16 @@ class MainWindow(QMainWindow):
         self.project_settings_action.setToolTip("プロジェクト設定")
         self.project_settings_action.triggered.connect(self._show_project_settings)
 
+        self.reference_catalog_action = QAction("文献を管理…", self)
+        self.reference_catalog_action.setToolTip("文献を管理")
+        self.reference_catalog_action.triggered.connect(lambda: self._show_reference_catalog())
+
     def _create_menu_bar(self) -> None:
         """ファイル・表示メニューを構築する。"""
         file_menu = self.menuBar().addMenu("ファイル")
         file_menu.addAction(self.open_project_action)
         file_menu.addAction(self.global_settings_action)
+        file_menu.addAction(self.reference_catalog_action)
         file_menu.addSeparator()
         file_menu.addAction(self.close_project_action)
         view_menu = self.menuBar().addMenu("表示")
@@ -79,9 +88,7 @@ class MainWindow(QMainWindow):
         toolbar = QToolBar("表示", self)
         toolbar.setMovable(False)
         toolbar.addAction(self.project_settings_action)
-        self.default_edge_label_combo = QComboBox(toolbar)
-        self._refresh_default_edge_type_combo()
-        toolbar.addWidget(self.default_edge_label_combo)
+        toolbar.addAction(self.reference_catalog_action)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
 
     def _create_property_inspector(self) -> None:
@@ -104,17 +111,36 @@ class MainWindow(QMainWindow):
 
     def _show_project_settings(self) -> None:
         """エッジ種類コレクションを編集するプロジェクト設定ダイアログを表示する。"""
-        dialog = QDialog(self)
+        changes_pending = [False]
+        edited_settings = self.project_settings.copy()
+        dialog = SaveCancelDialog(lambda: changes_pending[0], self)
         dialog.setWindowTitle("プロジェクト設定")
-        dialog.resize(420, 420)
-        editor = EdgeTypeEditorWidget(self.project_settings, dialog)
-        editor.edge_types_changed.connect(self._apply_project_settings_changes)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, parent=dialog)
-        buttons.rejected.connect(dialog.reject)
+        dialog.resize(600, 500)
+        editor = EdgeTypeEditorWidget(edited_settings, dialog)
+        editor.edge_types_changed.connect(lambda: changes_pending.__setitem__(0, True))
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel,
+            parent=dialog,
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.discard)
         layout = QVBoxLayout(dialog)
         layout.addWidget(editor)
         layout.addWidget(buttons)
+        if dialog.exec() == SaveCancelDialog.DialogCode.Accepted:
+            self.project_settings.replace_with(edited_settings)
+            self._apply_project_settings_changes()
+
+    def _show_reference_catalog(self, active_reference_link: ReferenceLink | None = None) -> None:
+        """文献マスタの管理ダイアログを開き、参照元ノードがあれば該当文献を選択する。"""
+        catalog = self._project_session.reference_catalog
+        if catalog is None:
+            self.statusBar().showMessage("保存先のないデモでは文献マスタを編集できません。")
+            return
+        dialog = ReferenceCatalogDialog(catalog, active_reference_link, self)
+        dialog.catalog_changed.connect(self._sync_reference_nodes_from_catalog)
         dialog.exec()
+        self._show_selection(self.canvas.selected_node_ids(), self.canvas.selected_edge_ids())
 
     def _toggle_inspector_visibility(self, visible: bool) -> None:
         """表示メニューからインスペクタを切り替え、Canvas左上のscene位置を維持する。"""
@@ -147,9 +173,9 @@ class MainWindow(QMainWindow):
     def _apply_project_settings_changes(self) -> None:
         """変更されたエッジ種類を、ツールバーと現在のCanvas表示へ反映する。"""
         self._register_edge_type_styles()
-        self._refresh_default_edge_type_combo()
         self.inspector.reload_edge_types()
         self._refresh_demo_graph()
+        self._persist_project()
 
     def _register_edge_type_styles(self) -> None:
         """プロジェクト設定のエッジ種類を、Canvasの汎用スタイルキーとして登録する。"""
@@ -158,22 +184,11 @@ class MainWindow(QMainWindow):
                 self._edge_type_style_key(edge_type),
                 ColorPalette.color_hex(edge_type.color_token),
             )
-
-    def _refresh_default_edge_type_combo(self) -> None:
-        """プロジェクト設定のエッジ種類から、新規エッジ用コンボボックスを再構築する。"""
-        previous_edge_type_id = self.default_edge_label_combo.currentData() if hasattr(self, "default_edge_label_combo") else None
-        blocker = QSignalBlocker(self.default_edge_label_combo)
-        self.default_edge_label_combo.clear()
-        self.default_edge_label_combo.addItem("（ラベルなし）", None)
-        for edge_type in self.project_settings.edge_types():
-            self.default_edge_label_combo.addItem(
-                self._edge_type_icon(edge_type),
-                edge_type.label,
-                edge_type.id,
+        for node_kind in NodeKind:
+            StyleRegistry.set_node_type_color(
+                f"project-node:{node_kind.value}",
+                ColorPalette.color_hex(self.project_settings.node_color(node_kind)),
             )
-        index = self.default_edge_label_combo.findData(previous_edge_type_id)
-        self.default_edge_label_combo.setCurrentIndex(index if index >= 0 else 0)
-        del blocker
 
     def _connect_canvas_events(self) -> None:
         """Canvasの汎用イベントを、このデモ用の操作処理へ接続する。"""
@@ -190,7 +205,10 @@ class MainWindow(QMainWindow):
         self.canvas.edge_reconnection_requested.connect(self._reconnect_demo_edge)
         self.canvas.edge_disconnect_requested.connect(self._disconnect_demo_edge)
         self.inspector.question_changed.connect(self._update_question_from_inspector)
+        self.inspector.memo_changed.connect(self._update_memo_from_inspector)
         self.inspector.edge_type_changed.connect(self._update_edge_type_from_inspector)
+        self.inspector.reference_changed.connect(self._update_reference_from_inspector)
+        self.inspector.reference_catalog_requested.connect(self._show_reference_catalog_for_node)
         self.canvas.node_double_clicked.connect(self._show_node_inspector)
         self.canvas.edge_double_clicked.connect(self._show_edge_inspector)
 
@@ -199,12 +217,23 @@ class MainWindow(QMainWindow):
         # 単一選択だけをインスペクタへ渡し、複数選択は編集対象を持たない。
         if len(node_ids) == 1 and not edge_ids:
             node_id = node_ids[0]
-            self.inspector.show_question(
-                self._demo_graph_editor.node_view_model(node_id),
-                self._demo_graph_editor.child_combination(node_id),
-            )
+            node = self._demo_graph_editor.node_view_model(node_id)
+            if node.node_kind == NodeKind.QUESTION:
+                self.inspector.show_question(node, self._demo_graph_editor.child_combination(node_id))
+            elif node.node_kind == NodeKind.MEMO:
+                self.inspector.show_memo(node)
+            else:
+                self.inspector.show_reference(node, self._reference_choices())
         elif len(edge_ids) == 1 and not node_ids:
-            self.inspector.show_edge(self._demo_graph_editor.edge_view_model(edge_ids[0]))
+            edge = self._demo_graph_editor.edge_view_model(edge_ids[0])
+            source_kind = self._demo_graph_editor.node_view_model(edge.source_node_id).node_kind
+            target_kind = self._demo_graph_editor.node_view_model(edge.target_node_id).node_kind
+            allowed_edge_type_ids = tuple(
+                edge_type.id
+                for edge_type in self.project_settings.edge_types()
+                if (source_kind, target_kind) in edge_type.allowed_endpoints
+            )
+            self.inspector.show_edge(edge, allowed_edge_type_ids)
         else:
             self.inspector.clear()
         if not node_ids and not edge_ids:
@@ -221,20 +250,24 @@ class MainWindow(QMainWindow):
         self._show_inspector_without_moving_canvas()
         self.inspector_dock.raise_()
         self.canvas.select_node(node_id)
-        self.statusBar().showMessage(f"ノード {node_id} をインスペクタで表示しています。")
+        self.statusBar().showMessage("ノードをインスペクタで表示しています。")
 
     def _show_edge_inspector(self, edge_id: str) -> None:
         """指定エッジを選択し、閉じていればインスペクタを再表示する。"""
         self._show_inspector_without_moving_canvas()
         self.inspector_dock.raise_()
         self.canvas.select_edge(edge_id)
-        self.statusBar().showMessage(f"エッジ {edge_id} をインスペクタで表示しています。")
+        self.statusBar().showMessage("エッジをインスペクタで表示しています。")
 
     def _show_canvas_context_menu(self, scene_position: QPointF, global_position: QPoint) -> None:
         """背景のコンテキストメニューを表示する。"""
         menu = QMenu(self)
         add_node_action = menu.addAction("質問ノードを追加")
         add_node_action.triggered.connect(lambda: self._create_question_node(scene_position))
+        add_memo_action = menu.addAction("メモノードを追加")
+        add_memo_action.triggered.connect(lambda: self._create_memo_node(scene_position))
+        add_reference_action = menu.addAction("文献ノードを追加")
+        add_reference_action.triggered.connect(lambda: self._create_reference_node(scene_position))
         menu.addSeparator()
         menu.addAction(self.fit_all_action)
         menu.exec(global_position)
@@ -261,7 +294,7 @@ class MainWindow(QMainWindow):
         edit_action = menu.addAction("エッジを編集（次フェーズ）")
         edit_action.setEnabled(False)
         menu.exec(global_position)
-        self.statusBar().showMessage(f"エッジ {edge_id} のコンテキストメニュー要求")
+        self.statusBar().showMessage("エッジのコンテキストメニューを表示しています。")
 
     def _show_node_move(self, node_id: str, old_position: QPointF, new_position: QPointF) -> None:
         """確定したノード位置を外部デモ状態へ反映し、結果を表示する。"""
@@ -269,7 +302,7 @@ class MainWindow(QMainWindow):
         self.canvas.update_node(self._demo_graph_editor.node_view_model(node_id))
         self._persist_project()
         self.statusBar().showMessage(
-            f"ノード {node_id} を移動: ({old_position.x():.0f}, {old_position.y():.0f}) → ({new_position.x():.0f}, {new_position.y():.0f})"
+            f"ノードを移動: ({old_position.x():.0f}, {old_position.y():.0f}) → ({new_position.x():.0f}, {new_position.y():.0f})"
         )
 
     def _show_label_move(self, edge_id: str, old_offset: QPointF, new_offset: QPointF) -> None:
@@ -277,7 +310,7 @@ class MainWindow(QMainWindow):
         self._demo_graph_editor.update_edge_label_offset(edge_id, new_offset.x(), new_offset.y())
         self._persist_project()
         self.statusBar().showMessage(
-            f"エッジラベル {edge_id} を移動: ({old_offset.x():.0f}, {old_offset.y():.0f}) → ({new_offset.x():.0f}, {new_offset.y():.0f})"
+            f"エッジラベルを移動: ({old_offset.x():.0f}, {old_offset.y():.0f}) → ({new_offset.x():.0f}, {new_offset.y():.0f})"
         )
 
     def _show_delete_request(self, node_ids: list[str], edge_ids: list[str]) -> None:
@@ -307,19 +340,22 @@ class MainWindow(QMainWindow):
         node_id = self._demo_graph_editor.insert_node_on_edge(edge_id)
         self._refresh_demo_graph()
         self.canvas.center_on_node(node_id)
-        self.statusBar().showMessage(f"エッジ {edge_id} を分割し、ノードを追加しました。")
+        self.statusBar().showMessage("エッジを分割し、ノードを追加しました。")
 
     def _create_demo_edge(self, source_node_id: str, target_node_id: str) -> None:
         """Canvasの接続要求を受け、デモ用の既定エッジを外部状態へ追加する。"""
         if self._demo_graph_editor.would_create_directed_cycle(source_node_id, target_node_id):
             self.statusBar().showMessage("主構造の親子関係に閉路ができるため、この接続は追加できません。")
             return
-        edge_type = self._selected_edge_type()
+        edge_type = self._selected_edge_type(source_node_id, target_node_id)
+        if edge_type is None:
+            self.statusBar().showMessage("このノード種類の組合せに許可された関係はありません。")
+            return
         edge_id = self._demo_graph_editor.add_edge(
             source_node_id,
             target_node_id,
-            self._default_edge_label(),
-            self._edge_type_style_key(edge_type) if edge_type is not None else "default",
+            edge_type.label,
+            self._edge_type_style_key(edge_type),
         )
         if edge_id is None:
             self.statusBar().showMessage("同一方向の接続がすでにあるため、追加しませんでした。")
@@ -327,24 +363,27 @@ class MainWindow(QMainWindow):
         self.canvas.update_edge(self._demo_graph_editor.edge_view_model(edge_id))
         self.canvas.select_edge(edge_id)
         self._persist_project()
-        self.statusBar().showMessage(f"新しいエッジ {edge_id} を追加しました。")
+        self.statusBar().showMessage("新しいエッジを追加しました。")
 
     def _create_demo_node_from_connection(self, source_node_id: str, scene_position: QPointF) -> None:
         """新規接続を背景で離した場合に、外部デモ状態へノードとエッジを追加する。"""
-        edge_type = self._selected_edge_type()
+        edge_type = self._selected_edge_type(source_node_id, NodeKind.QUESTION)
+        if edge_type is None:
+            self.statusBar().showMessage("このノード種類から新しい問いへ作れる関係はありません。")
+            return
         node_id = self._demo_graph_editor.create_node_connected_from(
             source_node_id,
             scene_position.x(),
             scene_position.y(),
-            self._default_edge_label(),
-            self._edge_type_style_key(edge_type) if edge_type is not None else "default",
+            edge_type.label,
+            self._edge_type_style_key(edge_type),
         )
         if node_id is None:
             self.statusBar().showMessage("新しいノードを追加できませんでした。")
             return
         self._refresh_demo_graph()
         self.canvas.select_node(node_id)
-        self.statusBar().showMessage(f"ノード {node_id} と新しい接続を追加しました。")
+        self.statusBar().showMessage("ノードと新しい接続を追加しました。")
 
     def _create_question_node(self, scene_position: QPointF) -> None:
         """背景メニューの指定位置へ、接続を持たない質問ノードを追加する。"""
@@ -352,7 +391,23 @@ class MainWindow(QMainWindow):
         self.canvas.update_node(self._demo_graph_editor.node_view_model(node_id))
         self.canvas.select_node(node_id)
         self._persist_project()
-        self.statusBar().showMessage(f"質問ノード {node_id} を追加しました。")
+        self.statusBar().showMessage("質問ノードを追加しました。")
+
+    def _create_memo_node(self, scene_position: QPointF) -> None:
+        """背景メニューの指定位置へ、接続を持たないメモノードを追加する。"""
+        node_id = self._demo_graph_editor.create_memo_node_at(scene_position.x(), scene_position.y())
+        self.canvas.update_node(self._demo_graph_editor.node_view_model(node_id))
+        self.canvas.select_node(node_id)
+        self._persist_project()
+        self.statusBar().showMessage("メモノードを追加しました。")
+
+    def _create_reference_node(self, scene_position: QPointF) -> None:
+        """背景メニューの指定位置へ、参照先が未選択の文献ノードを追加する。"""
+        node_id = self._demo_graph_editor.create_reference_node_at(scene_position.x(), scene_position.y())
+        self.canvas.update_node(self._demo_graph_editor.node_view_model(node_id))
+        self.canvas.select_node(node_id)
+        self._persist_project()
+        self.statusBar().showMessage("文献ノードを追加しました。")
 
     def _disconnect_demo_edge(self, edge_id: str) -> None:
         """Canvasからの切断要求を受け、外部デモ状態のエッジを削除する。"""
@@ -360,7 +415,7 @@ class MainWindow(QMainWindow):
             return
         self.canvas.remove_edge(edge_id)
         self._persist_project()
-        self.statusBar().showMessage(f"エッジ {edge_id} を切断しました。")
+        self.statusBar().showMessage("エッジを切断しました。")
 
     def _reconnect_demo_edge(self, edge_id: str, source_node_id: str, target_node_id: str) -> None:
         """既存エッジの端を別ノードへドロップした結果を、外部デモ状態へ反映する。"""
@@ -370,7 +425,7 @@ class MainWindow(QMainWindow):
         self.canvas.update_edge(self._demo_graph_editor.edge_view_model(edge_id))
         self.canvas.select_edge(edge_id)
         self._persist_project()
-        self.statusBar().showMessage(f"エッジ {edge_id} を付け替えました。")
+        self.statusBar().showMessage("エッジを付け替えました。")
 
     def _refresh_demo_graph(self) -> None:
         """外部デモ状態から再構築したViewModelをCanvasへ反映する。"""
@@ -394,27 +449,84 @@ class MainWindow(QMainWindow):
 
     def _update_edge_type_from_inspector(self, edge_id: str, edge_type_id: str | None) -> None:
         """インスペクタの種類選択を、エッジのラベルと色へ即時反映する。"""
-        edge_type = next((edge_type for edge_type in self.project_settings.edge_types() if edge_type.id == edge_type_id), None)
-        if edge_type is None:
-            self._demo_graph_editor.update_edge_type(edge_id, "", "default")
-        else:
-            self._demo_graph_editor.update_edge_type(edge_id, edge_type.label, self._edge_type_style_key(edge_type))
+        edge = self._demo_graph_editor.edge_view_model(edge_id)
+        edge_type = self._selected_edge_type(edge.source_node_id, edge.target_node_id)
+        if edge_type is None or edge_type.id != edge_type_id:
+            self.statusBar().showMessage("このノード種類の組合せには、その関係を設定できません。")
+            return
+        self._demo_graph_editor.update_edge_type(edge_id, edge_type.label, self._edge_type_style_key(edge_type))
         self.canvas.update_edge(self._demo_graph_editor.edge_view_model(edge_id))
         self._persist_project()
+
+    def _update_memo_from_inspector(self, node_id: str, title: str, body: str) -> None:
+        """インスペクタのメモ編集を外部状態とCanvasへ即時反映する。"""
+        if not title.strip():
+            self.statusBar().showMessage("メモのタイトルは空欄にできません。")
+            return
+        self._demo_graph_editor.update_memo_node(node_id, title, body)
+        self.canvas.update_node(self._demo_graph_editor.node_view_model(node_id))
+        self._persist_project()
+
+    def _update_reference_from_inspector(self, node_id: str, reference_link: ReferenceLink | None) -> None:
+        """インスペクタで選んだ文献をノードへ関連付け、表示内容をカタログから同期する。"""
+        record = self._reference_for_link(reference_link)
+        if record is None:
+            self._demo_graph_editor.update_reference_node(node_id, None, "文献を選択してください", None)
+        else:
+            self._demo_graph_editor.update_reference_node(node_id, reference_link, record.title, self._reference_secondary_text(record))
+        self.canvas.update_node(self._demo_graph_editor.node_view_model(node_id))
+        self._persist_project()
+
+    def _show_reference_catalog_for_node(self, node_id: str) -> None:
+        """文献ノードが現在参照する文献を選択した状態で管理ダイアログを開く。"""
+        self._show_reference_catalog(self._demo_graph_editor.node_view_model(node_id).reference_link)
+
+    def _sync_reference_nodes_from_catalog(self) -> None:
+        """文献マスタの変更を、関連付け済み文献ノードの表示へ反映する。"""
+        for node in self._demo_graph_editor.graph().nodes:
+            if node.node_kind != NodeKind.REFERENCE or node.reference_link is None:
+                continue
+            record = self._reference_for_link(node.reference_link)
+            if record is None:
+                self._demo_graph_editor.update_reference_node(node.id, None, "文献を選択してください", None)
+            else:
+                self._demo_graph_editor.update_reference_node(node.id, node.reference_link, record.title, self._reference_secondary_text(record))
+            self.canvas.update_node(self._demo_graph_editor.node_view_model(node.id))
+        self._persist_project()
+
+    def _reference_choices(self) -> tuple[tuple[ReferenceLink, str], ...]:
+        """種類別文献ドメインから、インスペクタ選択用の文献リンク一覧を作る。"""
+        catalog = self._project_session.reference_catalog
+        if catalog is None:
+            return ()
+        return (
+            *((ReferenceLink(record_kind, record.id), record.title) for record_kind, records in ((ReferenceKind.PAPER, catalog.papers()), (ReferenceKind.BOOK, catalog.books()), (ReferenceKind.WEBSITE, catalog.websites())) for record in records),
+        )
+
+    def _reference_for_link(self, link: ReferenceLink | None) -> Paper | Book | Website | None:
+        """文献リンクから、該当する種類別文献ドメインを取得する。"""
+        catalog = self._project_session.reference_catalog
+        return None if catalog is None or link is None else catalog.find(link)
+
+    def _reference_secondary_text(self, record: Paper | Book | Website) -> str | None:
+        """種類別文献のタイトル以外の情報を、ノードの補足テキストへ整形する。"""
+        if isinstance(record, Paper):
+            parts = ["Paper", record.authors, record.year, record.doi, record.url, record.notes]
+        elif isinstance(record, Book):
+            parts = ["Book", record.authors, record.year, record.isbn, record.publisher, record.notes]
+        else:
+            parts = ["Website", record.site_name, record.published_at, record.accessed_at, record.url, record.notes]
+        return " / ".join(part for part in parts if part) or None
 
     def _persist_project(self) -> None:
         """現在のプロジェクトセッションへ、編集内容の保存を依頼する。"""
         self._project_session.save()
 
-    def _default_edge_label(self) -> str:
-        """ツールバーで指定された新規エッジの既定ラベルを返す。"""
-        edge_type = self._selected_edge_type()
-        return edge_type.label if edge_type is not None else ""
-
-    def _selected_edge_type(self) -> EdgeType | None:
-        """ツールバーで選択中のエッジ種類を返す。ラベルなしならNoneを返す。"""
-        edge_type_id = self.default_edge_label_combo.currentData()
-        return next((edge_type for edge_type in self.project_settings.edge_types() if edge_type.id == edge_type_id), None)
+    def _selected_edge_type(self, source_node_id: str, target_node_id: str | NodeKind) -> EdgeType | None:
+        """始点・終点のノード種別に許可された先頭の関係種類を返す。"""
+        source_kind = self._demo_graph_editor.node_view_model(source_node_id).node_kind
+        target_kind = target_node_id if isinstance(target_node_id, NodeKind) else self._demo_graph_editor.node_view_model(target_node_id).node_kind
+        return self.project_settings.default_edge_type(source_kind, target_kind)
 
     def _edge_type_style_key(self, edge_type: EdgeType) -> str:
         """プロジェクト設定のエッジ種類IDを、Canvas用の汎用スタイルキーへ変換する。"""

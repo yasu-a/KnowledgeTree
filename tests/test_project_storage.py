@@ -9,6 +9,8 @@ import pytest
 from knowledge_tree.color_palette import ColorToken
 from knowledge_tree.demo_graph_editor import ChildCombination, DemoGraphEditor
 from knowledge_tree.project_storage import ProjectSnapshot, ProjectStorage
+from knowledge_tree.node_kind import NodeKind
+from knowledge_tree.reference_catalog import ReferenceKind, ReferenceLink
 
 
 def test_creating_a_project_writes_json_files_and_a_cp932_literature_csv(tmp_path: Path) -> None:
@@ -21,7 +23,28 @@ def test_creating_a_project_writes_json_files_and_a_cp932_literature_csv(tmp_pat
     assert len(snapshot.graph.nodes) >= 1
     assert (project_directory / "project_settings.json").exists()
     assert (project_directory / "graph.json").exists()
-    assert (project_directory / "literature_master.csv").read_text(encoding="cp932").startswith("id,title,authors")
+    assert (project_directory / "references" / "papers.csv").read_text(encoding="cp932").startswith("id,title,authors")
+
+
+def test_saving_a_project_does_not_duplicate_the_initial_reference(tmp_path: Path) -> None:
+    """通常保存でデモ用の初期文献を重複追加しない。"""
+    storage = ProjectStorage(tmp_path / "userdata")
+    snapshot = storage.create_project("文献重複")
+
+    storage.save_project("文献重複", snapshot)
+
+    assert len(storage.reference_catalog("文献重複").papers()) == 1
+
+
+def test_graph_storage_preserves_a_reference_link_with_kind_and_id(tmp_path: Path) -> None:
+    """グラフJSONは文献IDだけでなく、文献種別もReferenceLinkとして保持する。"""
+    storage = ProjectStorage(tmp_path / "userdata")
+    storage.create_project("文献リンク")
+
+    loaded = storage.load_project("文献リンク")
+    evidence = next(node for node in loaded.graph.nodes if node.id == "evidence")
+
+    assert evidence.reference_link == ReferenceLink(ReferenceKind.PAPER, "paper-001")
 
 
 def test_saving_and_loading_a_project_preserves_graph_layout_and_edge_types(tmp_path: Path) -> None:
@@ -30,7 +53,7 @@ def test_saving_and_loading_a_project_preserves_graph_layout_and_edge_types(tmp_
     snapshot = storage.create_project("保存確認")
     moved_node = replace(snapshot.graph.nodes[0], position_x=777.0, position_y=333.0)
     modified_graph = replace(snapshot.graph, nodes=(moved_node, *snapshot.graph.nodes[1:]))
-    snapshot.settings.update_edge_type("refines", "refines", ColorToken.INDIGO)
+    snapshot.settings.update_edge_color("refines", ColorToken.INDIGO)
 
     storage.save_project("保存確認", ProjectSnapshot(modified_graph, snapshot.settings))
     loaded = storage.load_project("保存確認")
@@ -39,7 +62,27 @@ def test_saving_and_loading_a_project_preserves_graph_layout_and_edge_types(tmp_
     assert next(item for item in loaded.settings.edge_types() if item.id == "refines").color_token == ColorToken.INDIGO
     settings_json = json.loads((tmp_path / "userdata" / "projects" / "保存確認" / "project_settings.json").read_text(encoding="utf-8"))
     assert settings_json["edge_types"][0]["color_token"] == "indigo"
+    assert settings_json["edge_types"][0]["allowed_endpoints"] == [[NodeKind.QUESTION.value, NodeKind.QUESTION.value]]
     assert "color_hex" not in settings_json["edge_types"][0]
+
+
+def test_saving_and_loading_a_project_preserves_custom_edge_type_endpoints(tmp_path: Path) -> None:
+    """追加した関係種類と接続可能なノード種別の設定はJSON往復後も保持する。"""
+    storage = ProjectStorage(tmp_path / "userdata")
+    snapshot = storage.create_project("接続規則")
+    edge_type = snapshot.settings.add_edge_type()
+    snapshot.settings.update_edge_type(
+        edge_type.id,
+        "commentsOn",
+        ColorToken.ROSE,
+        ((NodeKind.QUESTION, NodeKind.MEMO),),
+    )
+
+    storage.save_project("接続規則", snapshot)
+    loaded = storage.load_project("接続規則")
+
+    assert loaded.settings.edge_types()[-1].label == "commentsOn"
+    assert loaded.settings.edge_types()[-1].allowed_endpoints == ((NodeKind.QUESTION, NodeKind.MEMO),)
 
 
 def test_project_storage_rejects_unsafe_project_names(tmp_path: Path) -> None:

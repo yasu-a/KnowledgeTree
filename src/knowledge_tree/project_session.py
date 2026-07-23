@@ -4,6 +4,7 @@ from knowledge_tree.demo_data import build_demo_graph
 from knowledge_tree.demo_graph_editor import DemoGraphEditor
 from knowledge_tree.project_settings import ProjectSettings
 from knowledge_tree.project_storage import ProjectSnapshot, ProjectStorage
+from knowledge_tree.reference_catalog import ReferenceCatalog
 
 
 class ProjectSession:
@@ -45,6 +46,13 @@ class ProjectSession:
     def graph_editor(self) -> DemoGraphEditor:
         """このプロジェクトのグラフ編集状態を返す。"""
         return self._graph_editor
+
+    @property
+    def reference_catalog(self) -> ReferenceCatalog | None:
+        """保存先を持つ場合に、そのプロジェクトの文献カタログを返す。"""
+        if self._project_storage is None:
+            return None
+        return self._project_storage.reference_catalog(self._project_name)
 
     def save(self) -> None:
         """保存先を持つ場合だけ、現在のグラフと設定をプロジェクトへ保存する。"""

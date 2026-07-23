@@ -5,6 +5,8 @@ from knowledge_tree.viewmodels.graph_viewmodels import (
     GraphNodeViewModel,
     GraphViewModel,
 )
+from knowledge_tree.node_kind import NodeKind
+from knowledge_tree.reference_catalog import ReferenceKind, ReferenceLink
 
 
 def build_demo_graph() -> GraphViewModel:
@@ -59,6 +61,8 @@ def build_demo_graph() -> GraphViewModel:
             width=235.0,
             height=105.0,
             style_key="default",
+            node_kind=NodeKind.REFERENCE,
+            reference_link=ReferenceLink(ReferenceKind.PAPER, "paper-001"),
         ),
         GraphNodeViewModel(
             id="note",
@@ -69,6 +73,7 @@ def build_demo_graph() -> GraphViewModel:
             width=285.0,
             height=105.0,
             style_key="note",
+            node_kind=NodeKind.MEMO,
         ),
         GraphNodeViewModel(
             id="warning",
@@ -79,6 +84,7 @@ def build_demo_graph() -> GraphViewModel:
             width=285.0,
             height=100.0,
             style_key="warning",
+            node_kind=NodeKind.MEMO,
         ),
         GraphNodeViewModel(
             id="isolated",
@@ -89,14 +95,14 @@ def build_demo_graph() -> GraphViewModel:
             width=220.0,
             height=95.0,
             style_key="default",
+            node_kind=NodeKind.MEMO,
         ),
     )
     edges = (
         GraphEdgeViewModel("edge-goal", "goal", "operation", "refines", True, "global-edge-type:refines"),
         GraphEdgeViewModel("edge-operation", "operation", "diagnosis", "refines", True, "global-edge-type:refines"),
         GraphEdgeViewModel("edge-diagnosis", "diagnosis", "question", "refines", True, "global-edge-type:refines"),
-        GraphEdgeViewModel("edge-evidence", "evidence", "question", "refines", True, "global-edge-type:refines"),
-        GraphEdgeViewModel("edge-note", "question", "note", "refines", True, "global-edge-type:refines"),
-        GraphEdgeViewModel("edge-warning", "note", "warning", "refines", True, "global-edge-type:refines"),
+        GraphEdgeViewModel("edge-evidence", "evidence", "question", "contributesTo", True, "global-edge-type:contributes-to"),
+        GraphEdgeViewModel("edge-note", "note", "question", "contributesTo", True, "global-edge-type:contributes-to"),
     )
     return GraphViewModel(nodes=nodes, edges=edges)

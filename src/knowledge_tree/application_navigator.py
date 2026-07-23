@@ -29,8 +29,8 @@ class ApplicationNavigator:
         self._session_state_store = session_state_store
         self._windows: dict[str, MainWindow] = {}
 
-    def start(self) -> None:
-        """全体設定と実行状態を読み込み、復元またはプロジェクト一覧表示を行う。"""
+    def start(self) -> bool:
+        """全体設定を読み込み、プロジェクトを開けた場合だけTrueを返す。"""
         self._application.setQuitOnLastWindowClosed(True)
         global_settings = self._global_settings_store.load()
         session_state = self._session_state_store.load()
@@ -41,8 +41,9 @@ class ApplicationNavigator:
             and session_state.last_active_project in self._project_storage.project_names()
         ):
             self.open_project(session_state.last_active_project)
-            return
+            return True
         self.show_project_list()
+        return bool(self._windows)
 
     def open_project(self, project_name: str) -> MainWindow | None:
         """指定プロジェクトを開くか、既存ウィンドウを前面表示する。"""

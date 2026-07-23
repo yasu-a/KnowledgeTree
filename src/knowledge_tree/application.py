@@ -23,5 +23,6 @@ def run() -> int:
         GlobalSettingsStore(userdata_directory),
         SessionStateStore(userdata_directory),
     )
-    navigator.start()
+    if not navigator.start():
+        return 0
     return application.exec()

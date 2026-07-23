@@ -4,11 +4,14 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 
 from knowledge_tree.viewmodels.graph_viewmodels import GraphEdgeViewModel, GraphNodeViewModel, GraphViewModel
+from knowledge_tree.node_kind import NodeKind
+from knowledge_tree.reference_catalog import ReferenceLink
 
 
 class ChildCombination(StrEnum):
     """親質問が子質問を満たすために必要とする組合せ条件。"""
 
+    NONE = ""
     ALL = "AND"
     ANY = "OR"
 
@@ -51,7 +54,7 @@ class DemoGraphEditor:
         self._child_combinations = {
             node.id: ChildCombination(node.badge_text)
             if node.badge_text in {combination.value for combination in ChildCombination}
-            else ChildCombination.ALL
+            else ChildCombination.NONE
             for node in graph.nodes
         }
         self._next_node_number = self._next_identifier_number(self._nodes, ("created-node-", "inserted-node-"))
@@ -68,7 +71,13 @@ class DemoGraphEditor:
     def node_view_model(self, node_id: str) -> GraphNodeViewModel:
         """質問ノードを、Canvas表示用の汎用ノードViewModelへ変換する。"""
         node = self._nodes[node_id]
-        return replace(node, badge_text=self._child_combinations[node_id].value)
+        if node.node_kind == NodeKind.QUESTION:
+            badge_text = self._child_combinations[node_id].value or None
+        elif node.node_kind == NodeKind.REFERENCE and node.reference_link is not None:
+            badge_text = node.reference_link.kind.value.title()
+        else:
+            badge_text = None
+        return replace(node, style_key=f"project-node:{node.node_kind.value}", badge_text=badge_text)
 
     def edge_view_model(self, edge_id: str) -> GraphEdgeViewModel:
         """指定エッジのCanvas表示用ViewModelを返す。"""
@@ -82,6 +91,10 @@ class DemoGraphEditor:
         """質問ノードのタイトル・本文・子の組合せ条件を更新する。"""
         self._nodes[node_id] = replace(self._nodes[node_id], text=title, secondary_text=body or None)
         self._child_combinations[node_id] = combination
+
+    def update_memo_node(self, node_id: str, title: str, body: str) -> None:
+        """メモノードのタイトルと本文を更新する。"""
+        self._nodes[node_id] = replace(self._nodes[node_id], text=title, secondary_text=body or None)
 
     def update_edge_label(self, edge_id: str, label: str) -> None:
         """指定エッジの関係ラベルを更新する。"""
@@ -116,7 +129,7 @@ class DemoGraphEditor:
             height=height,
             style_key="default",
         )
-        self._child_combinations[node_id] = ChildCombination.ALL
+        self._child_combinations[node_id] = ChildCombination.NONE
         # 元エッジを前半に置き換え、後半エッジへラベルを引き継ぐ。
         self._edges[edge_id] = GraphEdgeViewModel(
             id=edge_id,
@@ -240,7 +253,7 @@ class DemoGraphEditor:
             height=height,
             style_key="question",
         )
-        self._child_combinations[node_id] = ChildCombination.ALL
+        self._child_combinations[node_id] = ChildCombination.NONE
         # 接続に成功した場合だけノード作成を確定する。
         if self.add_edge(source_node_id, node_id, edge_label, edge_style_key) is not None:
             return node_id
@@ -265,8 +278,35 @@ class DemoGraphEditor:
             height=height,
             style_key="question",
         )
+        self._child_combinations[node_id] = ChildCombination.NONE
+        return node_id
+
+    def create_memo_node_at(self, position_x: float, position_y: float) -> str:
+        """指定位置を中心に、接続を持たないメモノードを作成する。"""
+        node_id = f"memo-node-{self._next_node_number}"
+        self._next_node_number += 1
+        self._nodes[node_id] = GraphNodeViewModel(
+            id=node_id, text="新しいメモ", secondary_text="", position_x=position_x - 110.0, position_y=position_y - 45.0,
+            width=220.0, height=90.0, style_key="project-node:memo", node_kind=NodeKind.MEMO,
+        )
         self._child_combinations[node_id] = ChildCombination.ALL
         return node_id
+
+    def create_reference_node_at(self, position_x: float, position_y: float) -> str:
+        """未選択の文献ノードを、指定位置へ作成する。"""
+        node_id = f"reference-node-{self._next_node_number}"
+        self._next_node_number += 1
+        self._nodes[node_id] = GraphNodeViewModel(
+            id=node_id, text="文献を選択してください", secondary_text=None, position_x=position_x - 120.0, position_y=position_y - 50.0,
+            width=240.0, height=100.0, style_key="project-node:reference", node_kind=NodeKind.REFERENCE, reference_link=None,
+        )
+        self._child_combinations[node_id] = ChildCombination.ALL
+        return node_id
+
+    def update_reference_node(self, node_id: str, reference_link: ReferenceLink | None, title: str, secondary_text: str | None) -> None:
+        """文献ノードの参照先と、カタログ由来の表示内容を更新する。"""
+        node = self._nodes[node_id]
+        self._nodes[node_id] = replace(node, reference_link=reference_link, text=title, secondary_text=secondary_text)
 
     def reconnect_edge(self, edge_id: str, source_node_id: str, target_node_id: str) -> bool:
         """既存エッジの片端を別ノードへ付け替える。デモ固有の閉路・重複を拒否する。"""
