@@ -1,9 +1,11 @@
 """種類ごとに独立した文献ドメインとCP932 CSVリポジトリ。"""
 
 import csv
+import os
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 
 class ReferenceKind(StrEnum):
@@ -137,13 +139,23 @@ class ReferenceCatalog:
             return tuple({header: row.get(header, "") for header in self._headers_by_kind[kind]} for row in csv.DictReader(file) if row.get("id") and row.get("title"))
 
     def _write_rows(self, kind: ReferenceKind, rows: list[dict[str, str]]) -> None:
-        """種類固有の列を保ったCSV全体を書き換える。"""
+        """種類固有の列を保ったCSV全体を一時ファイル経由で原子的に置換する。"""
         self._directory.mkdir(parents=True, exist_ok=True)
         headers = self._headers_by_kind[kind]
-        with self._path_for(kind).open("w", encoding="cp932", newline="") as file:
-            writer = csv.DictWriter(file, fieldnames=headers, lineterminator="\r\n")
-            writer.writeheader()
-            writer.writerows({header: row.get(header, "") for header in headers} for row in rows)
+        temporary_path: Path | None = None
+        try:
+            with NamedTemporaryFile("w", encoding="cp932", newline="", dir=self._directory, delete=False) as file:
+                temporary_path = Path(file.name)
+                writer = csv.DictWriter(file, fieldnames=headers, lineterminator="\r\n")
+                writer.writeheader()
+                writer.writerows({header: row.get(header, "") for header in headers} for row in rows)
+                file.flush()
+                os.fsync(file.fileno())
+            temporary_path.replace(self._path_for(kind))
+        except (OSError, UnicodeEncodeError) as error:
+            if temporary_path is not None and temporary_path.exists():
+                temporary_path.unlink()
+            raise ValueError(f"{kind.value}s.csvをCP932で保存できません。") from error
 
     def _next_id(self, kind: ReferenceKind) -> str:
         """指定種類内で重複しない文献IDを発行する。"""

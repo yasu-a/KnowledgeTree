@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from knowledge_tree.reference_catalog import Book, Paper, ReferenceCatalog, ReferenceKind, ReferenceLink, Website
 from knowledge_tree.ui.reference_catalog_dialog import ReferenceCatalogDialog
 
@@ -17,6 +19,20 @@ def test_catalog_persists_each_reference_domain_in_its_own_cp932_csv(tmp_path: P
     assert catalog.books()[0].publisher == "出版社"
     assert catalog.websites()[0].site_name == "サイト"
     assert catalog.find(ReferenceLink(ReferenceKind.BOOK, "book-001")) == catalog.books()[0]
+
+
+def test_csv_save_is_atomic_and_preserves_previous_file_when_cp932_encoding_fails(tmp_path: Path) -> None:
+    """CP932へ保存できない文字があっても、既存のCSVを一時ファイル置換前に壊さない。"""
+    catalog = ReferenceCatalog(tmp_path)
+    catalog.replace_papers((Paper("paper-001", "保存済み文献"),))
+    paper_path = tmp_path / "references" / "papers.csv"
+    previous_contents = paper_path.read_text(encoding="cp932")
+
+    with pytest.raises(ValueError, match="papers.csv"):
+        catalog.replace_papers((Paper("paper-001", "😀を含む文献"),))
+
+    assert paper_path.read_text(encoding="cp932") == previous_contents
+    assert len(tuple((tmp_path / "references").iterdir())) == 1
 
 
 def test_reference_catalog_dialog_cancels_or_saves_each_domain(qtbot: object, tmp_path: Path) -> None:
