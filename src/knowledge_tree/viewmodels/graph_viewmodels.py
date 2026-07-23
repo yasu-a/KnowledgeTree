@@ -15,6 +15,7 @@ class GraphNodeViewModel:
     width: float
     height: float
     style_key: str
+    badge_text: str | None = None
     movable: bool = True
     selectable: bool = True
     locked: bool = False

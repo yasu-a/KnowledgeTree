@@ -1,8 +1,16 @@
 """永続化を伴わない、Canvas操作確認用の外部デモ状態。"""
 
 from dataclasses import dataclass, replace
+from enum import StrEnum
 
 from knowledge_tree.viewmodels.graph_viewmodels import GraphEdgeViewModel, GraphNodeViewModel, GraphViewModel
+
+
+class ChildCombination(StrEnum):
+    """親質問が子質問を満たすために必要とする組合せ条件。"""
+
+    ALL = "AND"
+    ANY = "OR"
 
 
 @dataclass(frozen=True)
@@ -40,12 +48,40 @@ class DemoGraphEditor:
         """初期ViewModelを、デモ操作用の可変状態へ展開する。"""
         self._nodes = {node.id: node for node in graph.nodes}
         self._edges = {edge.id: edge for edge in graph.edges}
+        self._child_combinations = {node.id: ChildCombination.ALL for node in graph.nodes}
         self._next_node_number = 1
         self._next_edge_number = 1
 
     def graph(self) -> GraphViewModel:
         """現在のデモ状態をCanvas投入用のViewModelに変換する。"""
-        return GraphViewModel(nodes=tuple(self._nodes.values()), edges=tuple(self._edges.values()))
+        nodes = tuple(self.node_view_model(node_id) for node_id in self._nodes)
+        return GraphViewModel(nodes=nodes, edges=tuple(self._edges.values()))
+
+    def node_view_model(self, node_id: str) -> GraphNodeViewModel:
+        """質問ノードを、Canvas表示用の汎用ノードViewModelへ変換する。"""
+        node = self._nodes[node_id]
+        return replace(node, badge_text=self._child_combinations[node_id].value)
+
+    def edge_view_model(self, edge_id: str) -> GraphEdgeViewModel:
+        """指定エッジのCanvas表示用ViewModelを返す。"""
+        return self._edges[edge_id]
+
+    def child_combination(self, node_id: str) -> ChildCombination:
+        """指定質問ノードに設定された子の組合せ条件を返す。"""
+        return self._child_combinations[node_id]
+
+    def update_question_node(self, node_id: str, title: str, body: str, combination: ChildCombination) -> None:
+        """質問ノードのタイトル・本文・子の組合せ条件を更新する。"""
+        self._nodes[node_id] = replace(self._nodes[node_id], text=title, secondary_text=body or None)
+        self._child_combinations[node_id] = combination
+
+    def update_edge_label(self, edge_id: str, label: str) -> None:
+        """指定エッジの関係ラベルを更新する。"""
+        self._edges[edge_id] = replace(self._edges[edge_id], label=label)
+
+    def update_edge_type(self, edge_id: str, label: str, style_key: str) -> None:
+        """指定エッジの種類に対応するラベルと描画スタイルをまとめて更新する。"""
+        self._edges[edge_id] = replace(self._edges[edge_id], label=label, style_key=style_key)
 
     def insert_node_on_edge(self, edge_id: str) -> str:
         """エッジを二つに分割し、中間にデモノードを追加する。"""
@@ -72,6 +108,7 @@ class DemoGraphEditor:
             height=height,
             style_key="default",
         )
+        self._child_combinations[node_id] = ChildCombination.ALL
         # 元エッジを前半に置き換え、後半エッジへラベルを引き継ぐ。
         self._edges[edge_id] = GraphEdgeViewModel(
             id=edge_id,
@@ -117,6 +154,7 @@ class DemoGraphEditor:
         ]
         # ノード本体と接続済みエッジを取り除く。
         self._nodes.pop(node_id)
+        self._child_combinations.pop(node_id)
         for edge_id in connected_edge_ids:
             self._edges.pop(edge_id)
         created_edge_count = 0
@@ -148,8 +186,8 @@ class DemoGraphEditor:
                 removed_count += 1
         return removed_count
 
-    def add_edge(self, source_node_id: str, target_node_id: str) -> str | None:
-        """接続ドラッグ用の既定有向エッジを外部状態へ追加する。"""
+    def add_edge(self, source_node_id: str, target_node_id: str, label: str = "", style_key: str = "default") -> str | None:
+        """接続ドラッグ用の有向エッジを、指定ラベルで外部状態へ追加する。"""
         # 自己接続・重複・閉路となる接続は、デモの主構造として許可しない。
         if (
             source_node_id == target_node_id
@@ -162,14 +200,21 @@ class DemoGraphEditor:
             id=edge_id,
             source_node_id=source_node_id,
             target_node_id=target_node_id,
-            label="新規接続",
+            label=label,
             directed=True,
-            style_key="default",
+            style_key=style_key,
         )
         return edge_id
 
-    def create_node_connected_from(self, source_node_id: str, position_x: float, position_y: float) -> str | None:
-        """背景ドロップ位置にデモノードを作り、指定ノードから接続する。"""
+    def create_node_connected_from(
+        self,
+        source_node_id: str,
+        position_x: float,
+        position_y: float,
+        edge_label: str = "",
+        edge_style_key: str = "default",
+    ) -> str | None:
+        """背景ドロップ位置に質問ノードを作り、指定ラベルの有向エッジで接続する。"""
         if source_node_id not in self._nodes:
             return None
         # ドロップ位置を中心に、デモ用の既定ノードを作る。
@@ -187,11 +232,33 @@ class DemoGraphEditor:
             height=height,
             style_key="question",
         )
+        self._child_combinations[node_id] = ChildCombination.ALL
         # 接続に成功した場合だけノード作成を確定する。
-        if self.add_edge(source_node_id, node_id) is not None:
+        if self.add_edge(source_node_id, node_id, edge_label, edge_style_key) is not None:
             return node_id
         self._nodes.pop(node_id)
+        self._child_combinations.pop(node_id)
         return None
+
+    def create_question_node_at(self, position_x: float, position_y: float) -> str:
+        """指定位置を中心に、接続を持たない質問ノードを作成する。"""
+        node_id = f"created-node-{self._next_node_number}"
+        self._next_node_number += 1
+        width = 235.0
+        height = 105.0
+        # Canvas上の指定地点を、新しい質問ノードの中心として使う。
+        self._nodes[node_id] = GraphNodeViewModel(
+            id=node_id,
+            text="新しい問い",
+            secondary_text=None,
+            position_x=position_x - width / 2.0,
+            position_y=position_y - height / 2.0,
+            width=width,
+            height=height,
+            style_key="question",
+        )
+        self._child_combinations[node_id] = ChildCombination.ALL
+        return node_id
 
     def reconnect_edge(self, edge_id: str, source_node_id: str, target_node_id: str) -> bool:
         """既存エッジの片端を別ノードへ付け替える。デモ固有の閉路・重複を拒否する。"""

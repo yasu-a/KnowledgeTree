@@ -1,12 +1,16 @@
 """第1フェーズの MainWindow。メニューはCanvasの外で構築する。"""
 
-from PyQt6.QtCore import QPoint, QPointF, QTimer, Qt
+from PyQt6.QtCore import QPoint, QPointF, QSignalBlocker, QTimer, Qt
 from PyQt6.QtGui import QAction, QKeySequence
-from PyQt6.QtWidgets import QMainWindow, QMenu, QMessageBox, QStatusBar, QToolBar
+from PyQt6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QDockWidget, QMainWindow, QMenu, QStatusBar, QToolBar, QVBoxLayout
 
 from knowledge_tree.demo_data import build_demo_graph
-from knowledge_tree.demo_graph_editor import DemoGraphEditor
+from knowledge_tree.demo_graph_editor import ChildCombination, DemoGraphEditor
+from knowledge_tree.global_settings import EdgeType, GlobalSettings
 from knowledge_tree.graph.graph_canvas_widget import GraphCanvasWidget
+from knowledge_tree.graph.styles import StyleRegistry
+from knowledge_tree.ui.edge_type_editor_widget import EdgeTypeEditorWidget
+from knowledge_tree.ui.property_inspector import PropertyInspector
 
 
 class MainWindow(QMainWindow):
@@ -19,6 +23,9 @@ class MainWindow(QMainWindow):
         self.resize(1200, 760)
         self.canvas = GraphCanvasWidget(self)
         self.setCentralWidget(self.canvas)
+        self.global_settings = GlobalSettings()
+        self._register_edge_type_styles()
+        self._create_property_inspector()
         self._create_actions()
         self._create_menu_bar()
         self._create_toolbar()
@@ -39,23 +46,111 @@ class MainWindow(QMainWindow):
         self.exit_action.setShortcut(QKeySequence.StandardKey.Quit)
         self.exit_action.triggered.connect(self.close)
 
+        self.global_settings_action = QAction("⚙", self)
+        self.global_settings_action.setToolTip("全体設定")
+        self.global_settings_action.triggered.connect(self._show_global_settings)
+
     def _create_menu_bar(self) -> None:
         """ファイル・表示メニューを構築する。"""
         file_menu = self.menuBar().addMenu("ファイル")
         file_menu.addAction(self.exit_action)
         view_menu = self.menuBar().addMenu("表示")
         view_menu.addAction(self.fit_all_action)
+        view_menu.addAction(self.inspector_visibility_action)
 
     def _create_toolbar(self) -> None:
         """表示操作用のツールバーを構築する。"""
         toolbar = QToolBar("表示", self)
         toolbar.setMovable(False)
-        toolbar.addAction(self.fit_all_action)
+        toolbar.addAction(self.global_settings_action)
+        self.default_edge_label_combo = QComboBox(toolbar)
+        self._refresh_default_edge_type_combo()
+        toolbar.addWidget(self.default_edge_label_combo)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
+
+    def _create_property_inspector(self) -> None:
+        """Canvasの選択対象を編集する右側ドックを作成する。"""
+        self.inspector = PropertyInspector(self.global_settings, self)
+        self.inspector_dock = QDockWidget("インスペクタ", self)
+        self.inspector_dock.setObjectName("property-inspector-dock")
+        self.inspector_dock.setWidget(self.inspector)
+        self.inspector_dock.setMinimumWidth(260)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.inspector_dock)
+        self.inspector_visibility_action = QAction("インスペクタ", self)
+        self.inspector_visibility_action.setCheckable(True)
+        self.inspector_visibility_action.setChecked(True)
+        self.inspector_visibility_action.triggered.connect(self._toggle_inspector_visibility)
+        self.inspector_dock.visibilityChanged.connect(self.inspector_visibility_action.setChecked)
 
     def _create_status_bar(self) -> None:
         """操作結果を表示するステータスバーを設定する。"""
         self.setStatusBar(QStatusBar(self))
+
+    def _show_global_settings(self) -> None:
+        """エッジ種類コレクションを編集する、永続化前の全体設定ダイアログを表示する。"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("全体設定")
+        dialog.resize(420, 420)
+        editor = EdgeTypeEditorWidget(self.global_settings, dialog)
+        editor.edge_types_changed.connect(self._apply_global_settings_changes)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, parent=dialog)
+        buttons.rejected.connect(dialog.reject)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(editor)
+        layout.addWidget(buttons)
+        dialog.exec()
+
+    def _toggle_inspector_visibility(self, visible: bool) -> None:
+        """表示メニューからインスペクタを切り替え、Canvas左上のscene位置を維持する。"""
+        top_left_position = self._canvas_scene_top_left()
+        self.inspector_dock.setVisible(visible)
+        self._restore_canvas_top_left_after_layout(top_left_position)
+
+    def _show_inspector_without_moving_canvas(self) -> None:
+        """インスペクタを表示し、ドック幅の変化によるCanvasの見かけの移動を防ぐ。"""
+        if self.inspector_dock.isVisible():
+            return
+        top_left_position = self._canvas_scene_top_left()
+        self.inspector_dock.show()
+        self._restore_canvas_top_left_after_layout(top_left_position)
+
+    def _canvas_scene_top_left(self) -> QPointF:
+        """現在のCanvas表示領域の左上に対応するscene座標を返す。"""
+        return self.canvas.mapToScene(self.canvas.viewport().rect().topLeft())
+
+    def _restore_canvas_top_left_after_layout(self, top_left_position: QPointF) -> None:
+        """ドック表示でレイアウトが確定した後、Canvas左上を元のscene位置へ戻す。"""
+        QTimer.singleShot(0, lambda: self._align_canvas_top_left(top_left_position))
+
+    def _align_canvas_top_left(self, top_left_position: QPointF) -> None:
+        """現在の左上との差分だけCanvasを移動し、画面上のノード位置を維持する。"""
+        current_top_left = self._canvas_scene_top_left()
+        current_center = self.canvas.mapToScene(self.canvas.viewport().rect().center())
+        self.canvas.centerOn(current_center + top_left_position - current_top_left)
+
+    def _apply_global_settings_changes(self) -> None:
+        """変更されたエッジ種類を、ツールバーと現在のCanvas表示へ反映する。"""
+        self._register_edge_type_styles()
+        self._refresh_default_edge_type_combo()
+        self.inspector.reload_edge_types()
+        self._refresh_demo_graph()
+
+    def _register_edge_type_styles(self) -> None:
+        """全体設定のエッジ種類を、Canvasの汎用スタイルキーとして登録する。"""
+        for edge_type in self.global_settings.edge_types():
+            StyleRegistry.set_edge_type_color(self._edge_type_style_key(edge_type), edge_type.color_hex)
+
+    def _refresh_default_edge_type_combo(self) -> None:
+        """全体設定のエッジ種類から、新規エッジ用コンボボックスを再構築する。"""
+        previous_edge_type_id = self.default_edge_label_combo.currentData() if hasattr(self, "default_edge_label_combo") else None
+        blocker = QSignalBlocker(self.default_edge_label_combo)
+        self.default_edge_label_combo.clear()
+        self.default_edge_label_combo.addItem("（ラベルなし）", None)
+        for edge_type in self.global_settings.edge_types():
+            self.default_edge_label_combo.addItem(edge_type.label, edge_type.id)
+        index = self.default_edge_label_combo.findData(previous_edge_type_id)
+        self.default_edge_label_combo.setCurrentIndex(index if index >= 0 else 0)
+        del blocker
 
     def _connect_canvas_events(self) -> None:
         """Canvasの汎用イベントを、このデモ用の操作処理へ接続する。"""
@@ -71,11 +166,24 @@ class MainWindow(QMainWindow):
         self.canvas.node_creation_requested.connect(self._create_demo_node_from_connection)
         self.canvas.edge_reconnection_requested.connect(self._reconnect_demo_edge)
         self.canvas.edge_disconnect_requested.connect(self._disconnect_demo_edge)
-        self.canvas.node_double_clicked.connect(lambda node_id: self.statusBar().showMessage(f"ノード {node_id} がダブルクリックされました。"))
-        self.canvas.edge_double_clicked.connect(lambda edge_id: self.statusBar().showMessage(f"エッジ {edge_id} がダブルクリックされました。"))
+        self.inspector.question_changed.connect(self._update_question_from_inspector)
+        self.inspector.edge_type_changed.connect(self._update_edge_type_from_inspector)
+        self.canvas.node_double_clicked.connect(self._show_node_inspector)
+        self.canvas.edge_double_clicked.connect(self._show_edge_inspector)
 
     def _show_selection(self, node_ids: list[str], edge_ids: list[str]) -> None:
         """現在のノード・エッジ選択数をステータスバーへ表示する。"""
+        # 単一選択だけをインスペクタへ渡し、複数選択は編集対象を持たない。
+        if len(node_ids) == 1 and not edge_ids:
+            node_id = node_ids[0]
+            self.inspector.show_question(
+                self._demo_graph_editor.node_view_model(node_id),
+                self._demo_graph_editor.child_combination(node_id),
+            )
+        elif len(edge_ids) == 1 and not node_ids:
+            self.inspector.show_edge(self._demo_graph_editor.edge_view_model(edge_ids[0]))
+        else:
+            self.inspector.clear()
         if not node_ids and not edge_ids:
             self.statusBar().showMessage("選択なし")
             return
@@ -85,11 +193,25 @@ class MainWindow(QMainWindow):
         """現在のCanvas倍率をステータスバーへ表示する。"""
         self.statusBar().showMessage(f"ズーム率: {zoom * 100:.0f}%")
 
+    def _show_node_inspector(self, node_id: str) -> None:
+        """指定ノードを選択し、閉じていればインスペクタを再表示する。"""
+        self._show_inspector_without_moving_canvas()
+        self.inspector_dock.raise_()
+        self.canvas.select_node(node_id)
+        self.statusBar().showMessage(f"ノード {node_id} をインスペクタで表示しています。")
+
+    def _show_edge_inspector(self, edge_id: str) -> None:
+        """指定エッジを選択し、閉じていればインスペクタを再表示する。"""
+        self._show_inspector_without_moving_canvas()
+        self.inspector_dock.raise_()
+        self.canvas.select_edge(edge_id)
+        self.statusBar().showMessage(f"エッジ {edge_id} をインスペクタで表示しています。")
+
     def _show_canvas_context_menu(self, scene_position: QPointF, global_position: QPoint) -> None:
         """背景のコンテキストメニューを表示する。"""
         menu = QMenu(self)
-        add_node_action = menu.addAction("ノードを追加（次フェーズ）")
-        add_node_action.setEnabled(False)
+        add_node_action = menu.addAction("質問ノードを追加")
+        add_node_action.triggered.connect(lambda: self._create_question_node(scene_position))
         menu.addSeparator()
         menu.addAction(self.fit_all_action)
         menu.exec(global_position)
@@ -121,6 +243,7 @@ class MainWindow(QMainWindow):
     def _show_node_move(self, node_id: str, old_position: QPointF, new_position: QPointF) -> None:
         """確定したノード位置を外部デモ状態へ反映し、結果を表示する。"""
         self._demo_graph_editor.update_node_position(node_id, new_position.x(), new_position.y())
+        self.canvas.update_node(self._demo_graph_editor.node_view_model(node_id))
         self.statusBar().showMessage(
             f"ノード {node_id} を移動: ({old_position.x():.0f}, {old_position.y():.0f}) → ({new_position.x():.0f}, {new_position.y():.0f})"
         )
@@ -133,23 +256,11 @@ class MainWindow(QMainWindow):
         )
 
     def _show_delete_request(self, node_ids: list[str], edge_ids: list[str]) -> None:
-        """選択対象の削除確認を表示し、外部デモ状態から削除する。"""
+        """選択対象を確認なしで外部デモ状態から削除する。"""
         if len(node_ids) == 1 and not edge_ids:
             self._request_node_deletion(node_ids[0])
             return
-        message = f"ノード: {len(node_ids)} 件\nエッジ: {len(edge_ids)} 件を削除します。"
-        if node_ids:
-            message += "\nノードに接続するエッジも削除されます。"
-        # 複数選択は再接続せず、確認後にまとめて削除する。
-        answer = QMessageBox.question(
-            self,
-            "削除の確認",
-            message,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if answer != QMessageBox.StandardButton.Yes:
-            return
+        # 複数選択は意図しない再接続を避け、接続を再構成せず削除する。
         removed_edge_count = self._demo_graph_editor.remove_edges(edge_ids)
         for node_id in node_ids:
             result = self._demo_graph_editor.remove_node(node_id, reconnect=False)
@@ -158,29 +269,9 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"ノード {len(node_ids)} 件、エッジ {removed_edge_count} 件を削除しました。")
 
     def _request_node_deletion(self, node_id: str) -> None:
-        """親子数に応じた再接続方針を確認し、単一ノードを削除する。"""
+        """安全に自動再接続できる場合だけ接続を維持し、確認なしで単一ノードを削除する。"""
         plan = self._demo_graph_editor.deletion_plan(node_id)
-        reconnect = False
-        # 多対多だけは全組合せでの再接続可否をユーザーに選んでもらう。
-        if plan.requires_choice:
-            answer = self._ask_many_to_many_deletion(node_id, plan.parent_node_ids, plan.child_node_ids)
-            if answer is None:
-                return
-            reconnect = answer
-        else:
-            message = self._single_node_deletion_message(node_id, plan.parent_node_ids, plan.child_node_ids)
-            answer = QMessageBox.question(
-                self,
-                "ノード削除の確認",
-                message,
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if answer != QMessageBox.StandardButton.Yes:
-                return
-            reconnect = plan.can_reconnect_automatically
-        # 決定した方針で外部状態を更新し、Canvasへ再投入する。
-        result = self._demo_graph_editor.remove_node(node_id, reconnect=reconnect)
+        result = self._demo_graph_editor.remove_node(node_id, reconnect=plan.can_reconnect_automatically)
         self._refresh_demo_graph()
         self.statusBar().showMessage(
             f"ノードを削除しました。削除エッジ: {result.removed_edge_count} 件、再接続: {result.created_edge_count} 件"
@@ -198,31 +289,49 @@ class MainWindow(QMainWindow):
         if self._demo_graph_editor.would_create_directed_cycle(source_node_id, target_node_id):
             self.statusBar().showMessage("主構造の親子関係に閉路ができるため、この接続は追加できません。")
             return
-        edge_id = self._demo_graph_editor.add_edge(source_node_id, target_node_id)
+        edge_type = self._selected_edge_type()
+        edge_id = self._demo_graph_editor.add_edge(
+            source_node_id,
+            target_node_id,
+            self._default_edge_label(),
+            self._edge_type_style_key(edge_type) if edge_type is not None else "default",
+        )
         if edge_id is None:
             self.statusBar().showMessage("同一方向の接続がすでにあるため、追加しませんでした。")
             return
-        self._refresh_demo_graph()
+        self.canvas.update_edge(self._demo_graph_editor.edge_view_model(edge_id))
+        self.canvas.select_edge(edge_id)
         self.statusBar().showMessage(f"新しいエッジ {edge_id} を追加しました。")
 
     def _create_demo_node_from_connection(self, source_node_id: str, scene_position: QPointF) -> None:
         """新規接続を背景で離した場合に、外部デモ状態へノードとエッジを追加する。"""
+        edge_type = self._selected_edge_type()
         node_id = self._demo_graph_editor.create_node_connected_from(
             source_node_id,
             scene_position.x(),
             scene_position.y(),
+            self._default_edge_label(),
+            self._edge_type_style_key(edge_type) if edge_type is not None else "default",
         )
         if node_id is None:
             self.statusBar().showMessage("新しいノードを追加できませんでした。")
             return
         self._refresh_demo_graph()
+        self.canvas.select_node(node_id)
         self.statusBar().showMessage(f"ノード {node_id} と新しい接続を追加しました。")
+
+    def _create_question_node(self, scene_position: QPointF) -> None:
+        """背景メニューの指定位置へ、接続を持たない質問ノードを追加する。"""
+        node_id = self._demo_graph_editor.create_question_node_at(scene_position.x(), scene_position.y())
+        self.canvas.update_node(self._demo_graph_editor.node_view_model(node_id))
+        self.canvas.select_node(node_id)
+        self.statusBar().showMessage(f"質問ノード {node_id} を追加しました。")
 
     def _disconnect_demo_edge(self, edge_id: str) -> None:
         """Canvasからの切断要求を受け、外部デモ状態のエッジを削除する。"""
         if self._demo_graph_editor.remove_edges([edge_id]) == 0:
             return
-        self._refresh_demo_graph()
+        self.canvas.remove_edge(edge_id)
         self.statusBar().showMessage(f"エッジ {edge_id} を切断しました。")
 
     def _reconnect_demo_edge(self, edge_id: str, source_node_id: str, target_node_id: str) -> None:
@@ -230,50 +339,47 @@ class MainWindow(QMainWindow):
         if not self._demo_graph_editor.reconnect_edge(edge_id, source_node_id, target_node_id):
             self.statusBar().showMessage("重複または閉路になるため、エッジの付け替えを取り消しました。")
             return
-        self._refresh_demo_graph()
+        self.canvas.update_edge(self._demo_graph_editor.edge_view_model(edge_id))
+        self.canvas.select_edge(edge_id)
         self.statusBar().showMessage(f"エッジ {edge_id} を付け替えました。")
-
-    def _single_node_deletion_message(
-        self,
-        node_id: str,
-        parent_node_ids: tuple[str, ...],
-        child_node_ids: tuple[str, ...],
-    ) -> str:
-        """単一ノード削除時に表示する、再接続方針の説明文を作る。"""
-        if parent_node_ids and child_node_ids and (len(parent_node_ids) == 1 or len(child_node_ids) == 1):
-            return (
-                f"ノード {node_id} を削除します。\n\n"
-                f"親: {', '.join(parent_node_ids)}\n"
-                f"子: {', '.join(child_node_ids)}\n\n"
-                "子ノードを親ノードへ再接続します。"
-            )
-        return f"ノード {node_id} と、その接続エッジを削除します。"
-
-    def _ask_many_to_many_deletion(
-        self,
-        node_id: str,
-        parent_node_ids: tuple[str, ...],
-        child_node_ids: tuple[str, ...],
-    ) -> bool | None:
-        """多対多ノード削除時に、再接続するかを確認して結果を返す。"""
-        dialog = QMessageBox(self)
-        dialog.setWindowTitle("ノード削除の確認")
-        dialog.setText(
-            f"ノード {node_id} には複数の親と子があります。\n\n"
-            f"親: {', '.join(parent_node_ids)}\n"
-            f"子: {', '.join(child_node_ids)}\n\n"
-            "再接続すると、親と子の全組合せでエッジを作成します。"
-        )
-        reconnect_button = dialog.addButton("全組合せで再接続して削除", QMessageBox.ButtonRole.AcceptRole)
-        disconnect_button = dialog.addButton("接続を解除して削除", QMessageBox.ButtonRole.DestructiveRole)
-        dialog.addButton(QMessageBox.StandardButton.Cancel)
-        dialog.exec()
-        if dialog.clickedButton() == reconnect_button:
-            return True
-        if dialog.clickedButton() == disconnect_button:
-            return False
-        return None
 
     def _refresh_demo_graph(self) -> None:
         """外部デモ状態から再構築したViewModelをCanvasへ反映する。"""
         self.canvas.set_graph(self._demo_graph_editor.graph())
+
+    def _update_question_from_inspector(
+        self,
+        node_id: str,
+        title: str,
+        body: str,
+        combination: ChildCombination,
+    ) -> None:
+        """インスペクタの質問編集を外部状態とCanvasへ即時反映する。"""
+        if not title.strip():
+            self.statusBar().showMessage("質問のタイトルは空欄にできません。")
+            return
+        self._demo_graph_editor.update_question_node(node_id, title, body, combination)
+        self.canvas.update_node(self._demo_graph_editor.node_view_model(node_id))
+
+    def _update_edge_type_from_inspector(self, edge_id: str, edge_type_id: str | None) -> None:
+        """インスペクタの種類選択を、エッジのラベルと色へ即時反映する。"""
+        edge_type = next((edge_type for edge_type in self.global_settings.edge_types() if edge_type.id == edge_type_id), None)
+        if edge_type is None:
+            self._demo_graph_editor.update_edge_type(edge_id, "", "default")
+        else:
+            self._demo_graph_editor.update_edge_type(edge_id, edge_type.label, self._edge_type_style_key(edge_type))
+        self.canvas.update_edge(self._demo_graph_editor.edge_view_model(edge_id))
+
+    def _default_edge_label(self) -> str:
+        """ツールバーで指定された新規エッジの既定ラベルを返す。"""
+        edge_type = self._selected_edge_type()
+        return edge_type.label if edge_type is not None else ""
+
+    def _selected_edge_type(self) -> EdgeType | None:
+        """ツールバーで選択中のエッジ種類を返す。ラベルなしならNoneを返す。"""
+        edge_type_id = self.default_edge_label_combo.currentData()
+        return next((edge_type for edge_type in self.global_settings.edge_types() if edge_type.id == edge_type_id), None)
+
+    def _edge_type_style_key(self, edge_type: EdgeType) -> str:
+        """全体設定のエッジ種類IDを、Canvas用の汎用スタイルキーへ変換する。"""
+        return f"global-edge-type:{edge_type.id}"

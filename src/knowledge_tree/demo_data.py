@@ -92,11 +92,11 @@ def build_demo_graph() -> GraphViewModel:
         ),
     )
     edges = (
-        GraphEdgeViewModel("edge-goal", "goal", "operation", "具体化する", True, "default"),
-        GraphEdgeViewModel("edge-operation", "operation", "diagnosis", "具体化する", True, "default"),
-        GraphEdgeViewModel("edge-diagnosis", "diagnosis", "question", "検討する", True, "default"),
-        GraphEdgeViewModel("edge-evidence", "evidence", "question", "比較する", True, "default"),
-        GraphEdgeViewModel("edge-note", "question", "note", "評価する", False, "note"),
-        GraphEdgeViewModel("edge-warning", "note", "warning", "注意する", True, "warning"),
+        GraphEdgeViewModel("edge-goal", "goal", "operation", "refines", True, "global-edge-type:refines"),
+        GraphEdgeViewModel("edge-operation", "operation", "diagnosis", "refines", True, "global-edge-type:refines"),
+        GraphEdgeViewModel("edge-diagnosis", "diagnosis", "question", "refines", True, "global-edge-type:refines"),
+        GraphEdgeViewModel("edge-evidence", "evidence", "question", "refines", True, "global-edge-type:refines"),
+        GraphEdgeViewModel("edge-note", "question", "note", "refines", True, "global-edge-type:refines"),
+        GraphEdgeViewModel("edge-warning", "note", "warning", "refines", True, "global-edge-type:refines"),
     )
     return GraphViewModel(nodes=nodes, edges=edges)

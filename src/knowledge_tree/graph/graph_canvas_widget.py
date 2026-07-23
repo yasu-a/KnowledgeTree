@@ -94,7 +94,7 @@ class GraphCanvasWidget(QGraphicsView):
             for edge_view_model in view_model.edges:
                 if edge_view_model.source_node_id in self._nodes and edge_view_model.target_node_id in self._nodes:
                     self._add_edge_item(edge_view_model)
-            self._scene.setSceneRect(self._scene.itemsBoundingRect().adjusted(-160.0, -160.0, 160.0, 160.0))
+            self._update_scene_rect()
         finally:
             self._is_rebuilding_graph = False
         self._emit_selection_changed()
@@ -107,6 +107,7 @@ class GraphCanvasWidget(QGraphicsView):
         else:
             item.update_from_view_model(node, StyleRegistry.node_style(node.style_key))
         self._refresh_edges_for_node(node.id)
+        self._update_scene_rect()
 
     def update_edge(self, edge: GraphEdgeViewModel) -> None:
         """指定エッジだけを外部ViewModelで更新する。"""
@@ -118,6 +119,15 @@ class GraphCanvasWidget(QGraphicsView):
         style = StyleRegistry.edge_style(edge.style_key)
         item.update_from_view_model(edge, style)
         label_item = self._edge_labels.get(edge.id)
+        # 空ラベルではラベルItemと補助線を除去し、表示上の空枠を残さない。
+        if not edge.label and label_item is not None:
+            self._scene.removeItem(label_item)
+            self._edge_labels.pop(edge.id)
+            connector_item = self._edge_label_connectors.pop(edge.id, None)
+            if connector_item is not None:
+                self._scene.removeItem(connector_item)
+            self._refresh_edge(edge.id)
+            return
         # ラベルの追加・更新に合わせて、補助線も同期させる。
         if edge.label and label_item is None:
             label_item = EdgeLabelItem(edge.id, edge.label, style, QPointF(edge.label_offset_x, edge.label_offset_y))
@@ -146,6 +156,7 @@ class GraphCanvasWidget(QGraphicsView):
         item = self._nodes.pop(node_id, None)
         if item is not None:
             self._scene.removeItem(item)
+        self._update_scene_rect()
 
     def remove_edge(self, edge_id: str) -> None:
         """表示からエッジを除去する。正本データは更新しない。"""
@@ -162,6 +173,22 @@ class GraphCanvasWidget(QGraphicsView):
     def clear_selection(self) -> None:
         """現在の表示選択を解除する。"""
         self._scene.clearSelection()
+
+    def select_node(self, node_id: str) -> None:
+        """指定ノードだけを選択状態にする。ビュー位置は変更しない。"""
+        item = self._nodes.get(node_id)
+        if item is None:
+            return
+        self._scene.clearSelection()
+        item.setSelected(True)
+
+    def select_edge(self, edge_id: str) -> None:
+        """指定エッジだけを選択状態にする。"""
+        item = self._edges.get(edge_id)
+        if item is None:
+            return
+        self._scene.clearSelection()
+        item.setSelected(True)
 
     def selected_node_ids(self) -> list[str]:
         """選択中のノードIDを返す。"""
@@ -368,6 +395,12 @@ class GraphCanvasWidget(QGraphicsView):
         edge_item = self._edges.get(edge_id)
         if connector_item is not None and label_item is not None and edge_item is not None:
             connector_item.update_geometry(edge_item, label_item.sceneBoundingRect())
+
+    def _update_scene_rect(self) -> None:
+        """全Itemを含むスクロール範囲へ、上下左右500pxの操作余白を設定する。"""
+        # 空Sceneでも有効な矩形を保ち、背景へのノード追加後もスクロール可能にする。
+        item_rectangle = self._scene.itemsBoundingRect()
+        self._scene.setSceneRect(item_rectangle.adjusted(-500.0, -500.0, 500.0, 500.0))
 
     def _emit_selection_changed(self) -> None:
         """再構築中以外で、選択状態をCanvas利用側へまとめて通知する。"""

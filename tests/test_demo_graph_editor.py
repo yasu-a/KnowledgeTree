@@ -1,7 +1,7 @@
 """Canvas外部のデモ編集状態を検証する。"""
 
 from knowledge_tree.demo_data import build_demo_graph
-from knowledge_tree.demo_graph_editor import DemoGraphEditor
+from knowledge_tree.demo_graph_editor import ChildCombination, DemoGraphEditor
 from knowledge_tree.viewmodels.graph_viewmodels import GraphEdgeViewModel, GraphNodeViewModel, GraphViewModel
 
 
@@ -121,6 +121,37 @@ def test_manual_layout_values_are_preserved_when_the_graph_is_rebuilt() -> None:
     goal_edge = next(edge for edge in graph.edges if edge.id == "edge-goal")
     assert (isolated_node.position_x, isolated_node.position_y) == (620.0, 430.0)
     assert (goal_edge.label_offset_x, goal_edge.label_offset_y) == (35.0, -20.0)
+
+
+def test_question_node_editing_projects_and_or_as_a_generic_badge() -> None:
+    """質問固有のAND/ORは、Canvasへ汎用バッジ文字列として渡される。"""
+    editor = DemoGraphEditor(build_demo_graph())
+
+    editor.update_question_node("goal", "更新後の問い", "本文", ChildCombination.ANY)
+    node = editor.node_view_model("goal")
+
+    assert (node.text, node.secondary_text, node.badge_text) == ("更新後の問い", "本文", "OR")
+
+
+def test_edge_label_can_be_cleared() -> None:
+    """関係ラベルはインスペクタから空欄へ更新できる。"""
+    editor = DemoGraphEditor(build_demo_graph())
+
+    editor.update_edge_label("edge-goal", "")
+
+    assert editor.edge_view_model("edge-goal").label == ""
+
+
+def test_create_question_node_at_adds_an_unconnected_question() -> None:
+    """背景メニュー用の操作は、接続を持たない質問ノードを追加する。"""
+    editor = DemoGraphEditor(build_demo_graph())
+
+    node_id = editor.create_question_node_at(520.0, 560.0)
+    graph = editor.graph()
+
+    node = next(node for node in graph.nodes if node.id == node_id)
+    assert (node.position_x, node.position_y, node.badge_text) == (402.5, 507.5, "AND")
+    assert all(node_id not in (edge.source_node_id, edge.target_node_id) for edge in graph.edges)
 
 
 def _node(node_id: str) -> GraphNodeViewModel:

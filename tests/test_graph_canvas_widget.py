@@ -1,10 +1,14 @@
 """ドメイン非依存Canvasの基本操作を検証する。"""
 
+from dataclasses import replace
+
 from PyQt6.QtCore import QPoint, QPointF, Qt
 from PyQt6.QtGui import QWheelEvent
 
 from knowledge_tree.demo_data import build_demo_graph
 from knowledge_tree.graph.graph_canvas_widget import GraphCanvasWidget
+from knowledge_tree.viewmodels.graph_viewmodels import GraphViewModel
+from knowledge_tree.viewmodels.graph_viewmodels import GraphNodeViewModel
 
 
 def test_canvas_accepts_an_externally_supplied_view_model(qtbot: object) -> None:
@@ -192,7 +196,9 @@ def test_dragging_an_undirected_edge_endpoint_keeps_its_preview_undirected(qtbot
     canvas = GraphCanvasWidget()
     qtbot.addWidget(canvas)
     canvas.resize(1000, 700)
-    canvas.set_graph(build_demo_graph())
+    graph = build_demo_graph()
+    undirected_edges = tuple(replace(edge, directed=False) if edge.id == "edge-note" else edge for edge in graph.edges)
+    canvas.set_graph(GraphViewModel(graph.nodes, undirected_edges))
     canvas.show()
     canvas.fit_all()
 
@@ -222,6 +228,28 @@ def test_replacing_a_selected_graph_does_not_access_deleted_qt_items(qtbot: obje
     canvas.set_graph(build_demo_graph())
 
     assert canvas.selected_node_ids() == []
+
+
+def test_adding_a_node_expands_the_scrollable_scene_rect(qtbot: object) -> None:
+    """増分追加したノードの外側にも、500pxの操作余白を持つScene矩形を設定する。"""
+    canvas = GraphCanvasWidget()
+    qtbot.addWidget(canvas)
+    canvas.set_graph(build_demo_graph())
+    node = GraphNodeViewModel(
+        id="far-node",
+        text="遠方の問い",
+        secondary_text=None,
+        position_x=2200.0,
+        position_y=1500.0,
+        width=200.0,
+        height=100.0,
+        style_key="question",
+    )
+
+    canvas.update_node(node)
+
+    assert canvas.sceneRect().right() >= 2900.0
+    assert canvas.sceneRect().bottom() >= 2100.0
 
 
 def _wheel_event(modifiers: Qt.KeyboardModifier) -> QWheelEvent:

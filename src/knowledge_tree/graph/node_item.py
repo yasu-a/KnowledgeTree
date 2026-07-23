@@ -80,11 +80,25 @@ class NodeItem(QGraphicsObject):
         painter.setBrush(self._style.background)
         painter.drawRoundedRect(rectangle.adjusted(1.5, 1.5, -1.5, -1.5), 10.0, 10.0)
 
+        # Canvas固有の意味を持たないバッジを、必要なノードだけ右上へ表示する。
+        if self._view_model.badge_text:
+            badge_rectangle = QRectF(rectangle.width() - 52.0, 8.0, 40.0, 19.0)
+            badge_font = QFont(painter.font())
+            badge_font.setBold(True)
+            badge_font.setPointSizeF(max(8.0, badge_font.pointSizeF() - 1.0))
+            painter.setFont(badge_font)
+            painter.setPen(QPen(self._style.border, 1.0))
+            painter.setBrush(self._style.background)
+            painter.drawRoundedRect(badge_rectangle, 7.0, 7.0)
+            painter.setPen(self._style.text)
+            painter.drawText(badge_rectangle, Qt.AlignmentFlag.AlignCenter, self._view_model.badge_text)
+
         title_font = QFont(painter.font())
         title_font.setBold(True)
         painter.setFont(title_font)
         painter.setPen(self._style.text)
-        title_rect = QRectF(12.0, 10.0, rectangle.width() - 24.0, rectangle.height() * 0.58)
+        title_width = rectangle.width() - (72.0 if self._view_model.badge_text else 24.0)
+        title_rect = QRectF(12.0, 10.0, title_width, rectangle.height() * 0.58)
         painter.drawText(title_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap, self._view_model.text)
 
         if self._view_model.secondary_text:

@@ -10,5 +10,5 @@ def test_demo_graph_contains_nodes_and_edges() -> None:
     assert len(graph.nodes) >= 8
     assert len(graph.edges) >= 6
     assert {node.style_key for node in graph.nodes} >= {"default", "question", "note", "warning"}
-    assert any(edge.directed for edge in graph.edges)
-    assert any(not edge.directed for edge in graph.edges)
+    assert all(edge.directed for edge in graph.edges)
+    assert {edge.style_key for edge in graph.edges} == {"global-edge-type:refines"}

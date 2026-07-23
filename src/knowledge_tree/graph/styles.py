@@ -50,3 +50,15 @@ class StyleRegistry:
     def edge_style(cls, style_key: str) -> EdgeStyle:
         """未知のキーには既定スタイルを返す。"""
         return cls._edge_styles.get(style_key, cls._edge_styles["default"])
+
+    @classmethod
+    def set_edge_type_color(cls, style_key: str, color_hex: str) -> None:
+        """設定画面で選んだ色を、指定エッジ種類用の描画スタイルとして登録する。"""
+        color = QColor(color_hex)
+        # 色相は残しつつ白へ寄せ、エッジラベルの文字コントラストを確保する。
+        label_background = QColor(
+            round(color.red() * 0.12 + 255 * 0.88),
+            round(color.green() * 0.12 + 255 * 0.88),
+            round(color.blue() * 0.12 + 255 * 0.88),
+        )
+        cls._edge_styles[style_key] = EdgeStyle(color, color.darker(130), label_background)
