@@ -22,7 +22,6 @@ def test_creating_a_project_writes_json_files_and_a_cp932_literature_csv(tmp_pat
     assert (project_directory / "project_settings.json").exists()
     assert (project_directory / "graph.json").exists()
     assert (project_directory / "literature_master.csv").read_text(encoding="cp932").startswith("id,title,authors")
-    assert storage.active_project_name() == "量子研究"
 
 
 def test_saving_and_loading_a_project_preserves_graph_layout_and_edge_types(tmp_path: Path) -> None:
@@ -68,14 +67,11 @@ def test_loading_a_project_preserves_or_and_uses_new_unique_ids(tmp_path: Path) 
     assert next_node_id not in {node.id for node in editor.graph().nodes}
 
 
-def test_deleting_a_project_removes_only_its_folder_and_clears_active_project(tmp_path: Path) -> None:
-    """将来の削除操作は指定プロジェクトだけを削除し、アクティブ設定を解除する。"""
+def test_deleting_a_project_removes_only_its_folder(tmp_path: Path) -> None:
+    """プロジェクト削除は指定プロジェクトのフォルダだけを削除する。"""
     storage = ProjectStorage(tmp_path / "userdata")
     storage.create_project("削除対象")
     storage.create_project("残す")
-    storage.set_active_project("削除対象")
-
     storage.delete_project("削除対象")
 
     assert storage.project_names() == ("残す",)
-    assert storage.active_project_name() is None

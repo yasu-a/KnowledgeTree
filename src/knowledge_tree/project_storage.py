@@ -9,7 +9,6 @@ from tempfile import NamedTemporaryFile
 
 from knowledge_tree.demo_data import build_demo_graph
 from knowledge_tree.color_palette import ColorPalette, ColorToken
-from knowledge_tree.global_settings import GlobalSettings
 from knowledge_tree.project_settings import EdgeType, ProjectSettings
 from knowledge_tree.viewmodels.graph_viewmodels import GraphEdgeViewModel, GraphNodeViewModel, GraphViewModel
 
@@ -45,7 +44,6 @@ class ProjectStorage:
         snapshot = ProjectSnapshot(build_demo_graph(), ProjectSettings())
         self.save_project(project_name, snapshot)
         self._create_literature_master(project_directory)
-        self.set_active_project(project_name)
         return snapshot
 
     def load_project(self, project_name: str) -> ProjectSnapshot:
@@ -56,15 +54,13 @@ class ProjectStorage:
         return ProjectSnapshot(self._graph_from_data(graph_data), self._settings_from_data(settings_data))
 
     def delete_project(self, project_name: str) -> None:
-        """指定プロジェクトのフォルダを削除し、アクティブ状態も必要なら解除する。"""
+        """指定プロジェクトのフォルダを安全性を確認して削除する。"""
         project_directory = self._project_directory(project_name)
         resolved_projects_directory = self._projects_directory.resolve()
         resolved_project_directory = project_directory.resolve()
         if resolved_project_directory.parent != resolved_projects_directory or not resolved_project_directory.is_dir():
             raise ValueError("削除対象のプロジェクトが見つかりません。")
         shutil.rmtree(resolved_project_directory)
-        if self.active_project_name() == project_name:
-            self._save_global_settings(GlobalSettings())
 
     def save_project(self, project_name: str, snapshot: ProjectSnapshot) -> None:
         """指定プロジェクトの設定JSONとグラフJSONを原子的に保存する。"""
@@ -74,17 +70,6 @@ class ProjectStorage:
         self._write_json(project_directory / "project_settings.json", self._settings_to_data(snapshot.settings))
         self._write_json(project_directory / "graph.json", self._graph_to_data(snapshot.graph))
         self._create_literature_master(project_directory)
-
-    def active_project_name(self) -> str | None:
-        """userdata直下の全体設定から、最後に開いたプロジェクト名を返す。"""
-        path = self._userdata_directory / "global_settings.json"
-        if not path.exists():
-            return None
-        return GlobalSettings(self._read_json(path).get("active_project")).active_project_name
-
-    def set_active_project(self, project_name: str) -> None:
-        """最後に開いたプロジェクト名をuserdata直下の全体設定へ保存する。"""
-        self._save_global_settings(GlobalSettings(project_name))
 
     def _project_directory(self, project_name: str) -> Path:
         """安全性を確認したプロジェクトフォルダの絶対パスを返す。"""
@@ -99,14 +84,6 @@ class ProjectStorage:
             return
         with path.open("w", encoding="cp932", newline="") as file:
             csv.writer(file, lineterminator="\r\n").writerow(("id", "title", "authors", "year", "doi", "notes"))
-
-    def _save_global_settings(self, settings: GlobalSettings) -> None:
-        """アプリ全体の設定をuserdata直下のJSONへ保存する。"""
-        self._userdata_directory.mkdir(parents=True, exist_ok=True)
-        self._write_json(
-            self._userdata_directory / "global_settings.json",
-            {"schema_version": 1, "active_project": settings.active_project_name},
-        )
 
     def _read_json(self, path: Path) -> dict[str, object]:
         """UTF-8 JSONオブジェクトを読み込み、破損時はValueErrorに変換する。"""

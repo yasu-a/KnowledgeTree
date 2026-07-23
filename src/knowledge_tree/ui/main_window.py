@@ -1,34 +1,36 @@
-"""第1フェーズの MainWindow。メニューはCanvasの外で構築する。"""
+"""一つのプロジェクトセッションを編集するMainWindow。"""
 
-from PyQt6.QtCore import QPoint, QPointF, QSignalBlocker, QTimer, Qt
-from PyQt6.QtGui import QAction, QColor, QIcon, QKeySequence, QPixmap
+from PyQt6.QtCore import QEvent, QPoint, QPointF, QSignalBlocker, QTimer, Qt, pyqtSignal
+from PyQt6.QtGui import QAction, QCloseEvent, QColor, QIcon, QKeySequence, QPixmap
 from PyQt6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QDockWidget, QMainWindow, QMenu, QStatusBar, QToolBar, QVBoxLayout
 
 from knowledge_tree.color_palette import ColorPalette
-from knowledge_tree.demo_data import build_demo_graph
 from knowledge_tree.demo_graph_editor import ChildCombination, DemoGraphEditor
-from knowledge_tree.project_settings import EdgeType, ProjectSettings
 from knowledge_tree.graph.graph_canvas_widget import GraphCanvasWidget
 from knowledge_tree.graph.styles import StyleRegistry
-from knowledge_tree.project_storage import ProjectSnapshot, ProjectStorage
+from knowledge_tree.project_session import ProjectSession
+from knowledge_tree.project_settings import EdgeType
 from knowledge_tree.ui.edge_type_editor_widget import EdgeTypeEditorWidget
 from knowledge_tree.ui.property_inspector import PropertyInspector
 
 
 class MainWindow(QMainWindow):
-    """サンプルデータの投入と、Canvasイベントの受け口を担当する。"""
+    """一つのプロジェクトセッションのCanvas編集と入力処理を担当する。"""
 
-    def __init__(self, project_storage: ProjectStorage | None = None, project_name: str | None = None) -> None:
-        """デモ用のCanvas、メニュー、外部編集状態を初期化する。"""
+    project_list_requested = pyqtSignal()
+    global_settings_requested = pyqtSignal()
+    project_activated = pyqtSignal(str)
+    project_closed = pyqtSignal(str)
+
+    def __init__(self, project_session: ProjectSession | None = None) -> None:
+        """指定プロジェクトのCanvas、メニュー、編集状態を初期化する。"""
         super().__init__()
-        self.setWindowTitle("KnowledgeTree - グラフ操作確認")
+        self._project_session = project_session or ProjectSession.demo()
+        self.setWindowTitle(f"KnowledgeTree - {self._project_session.project_name}")
         self.resize(1200, 760)
-        self._project_storage = project_storage
-        self._project_name = project_name
-        snapshot = self._load_initial_snapshot()
         self.canvas = GraphCanvasWidget(self)
         self.setCentralWidget(self.canvas)
-        self.project_settings = snapshot.settings
+        self.project_settings = self._project_session.project_settings
         self._register_edge_type_styles()
         self._create_property_inspector()
         self._create_actions()
@@ -36,16 +38,10 @@ class MainWindow(QMainWindow):
         self._create_toolbar()
         self._create_status_bar()
         self._connect_canvas_events()
-        self._demo_graph_editor = DemoGraphEditor(snapshot.graph)
+        self._demo_graph_editor = self._project_session.graph_editor
         self.canvas.set_graph(self._demo_graph_editor.graph())
         QTimer.singleShot(0, self.canvas.fit_all)
         self.statusBar().showMessage("背景をドラッグして移動できます。ノード辺で新規接続、エッジ端で付け替え・削除できます。")
-
-    def _load_initial_snapshot(self) -> ProjectSnapshot:
-        """保存先が指定された場合はプロジェクトを読み込み、未指定時はデモ状態を返す。"""
-        if self._project_storage is not None and self._project_name is not None:
-            return self._project_storage.load_project(self._project_name)
-        return ProjectSnapshot(build_demo_graph(), ProjectSettings())
 
     def _create_actions(self) -> None:
         """メニューとツールバーで共用するアクションを作成する。"""
@@ -53,9 +49,15 @@ class MainWindow(QMainWindow):
         self.fit_all_action.setShortcut("F")
         self.fit_all_action.triggered.connect(self.canvas.fit_all)
 
-        self.exit_action = QAction("終了", self)
-        self.exit_action.setShortcut(QKeySequence.StandardKey.Quit)
-        self.exit_action.triggered.connect(self.close)
+        self.close_project_action = QAction("プロジェクトを閉じる", self)
+        self.close_project_action.setShortcut(QKeySequence.StandardKey.Close)
+        self.close_project_action.triggered.connect(self.close)
+
+        self.open_project_action = QAction("プロジェクトを開く…", self)
+        self.open_project_action.triggered.connect(self.project_list_requested.emit)
+
+        self.global_settings_action = QAction("全体設定…", self)
+        self.global_settings_action.triggered.connect(self.global_settings_requested.emit)
 
         self.project_settings_action = QAction("⚙", self)
         self.project_settings_action.setToolTip("プロジェクト設定")
@@ -64,7 +66,10 @@ class MainWindow(QMainWindow):
     def _create_menu_bar(self) -> None:
         """ファイル・表示メニューを構築する。"""
         file_menu = self.menuBar().addMenu("ファイル")
-        file_menu.addAction(self.exit_action)
+        file_menu.addAction(self.open_project_action)
+        file_menu.addAction(self.global_settings_action)
+        file_menu.addSeparator()
+        file_menu.addAction(self.close_project_action)
         view_menu = self.menuBar().addMenu("表示")
         view_menu.addAction(self.fit_all_action)
         view_menu.addAction(self.inspector_visibility_action)
@@ -398,9 +403,8 @@ class MainWindow(QMainWindow):
         self._persist_project()
 
     def _persist_project(self) -> None:
-        """アクティブなプロジェクトがある場合だけ、現在のグラフと設定を自動保存する。"""
-        if self._project_storage is not None and self._project_name is not None:
-            self._project_storage.save_project(self._project_name, ProjectSnapshot(self._demo_graph_editor.graph(), self.project_settings))
+        """現在のプロジェクトセッションへ、編集内容の保存を依頼する。"""
+        self._project_session.save()
 
     def _default_edge_label(self) -> str:
         """ツールバーで指定された新規エッジの既定ラベルを返す。"""
@@ -421,3 +425,15 @@ class MainWindow(QMainWindow):
         pixmap = QPixmap(14, 14)
         pixmap.fill(QColor(ColorPalette.color_hex(edge_type.color_token)))
         return QIcon(pixmap)
+
+    def changeEvent(self, event: QEvent) -> None:
+        """ウィンドウがアクティブになった時、Navigatorへプロジェクトを通知する。"""
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
+            self.project_activated.emit(self._project_session.project_name)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """閉じる直前に保存し、Navigatorへセッション終了を通知する。"""
+        self._project_session.save()
+        event.accept()
+        self.project_closed.emit(self._project_session.project_name)

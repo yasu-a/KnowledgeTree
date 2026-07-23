@@ -4,6 +4,7 @@ from pathlib import Path
 
 from knowledge_tree.ui.main_window import MainWindow
 from PyQt6.QtCore import QPointF
+from knowledge_tree.project_session import ProjectSession
 from knowledge_tree.project_storage import ProjectStorage
 
 
@@ -129,7 +130,7 @@ def test_main_window_autosaves_changes_when_opened_from_a_project(qtbot: object,
     """プロジェクトとして開いたWindowの編集は、明示保存なしで次回読込へ反映される。"""
     storage = ProjectStorage(tmp_path / "userdata")
     storage.create_project("自動保存")
-    window = MainWindow(storage, "自動保存")
+    window = MainWindow(ProjectSession.open(storage, "自動保存"))
     qtbot.addWidget(window)
 
     window._show_node_move("isolated", QPointF(80.0, 500.0), QPointF(620.0, 430.0))
