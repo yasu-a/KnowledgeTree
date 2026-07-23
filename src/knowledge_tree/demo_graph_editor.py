@@ -246,7 +246,7 @@ class DemoGraphEditor:
         self._nodes[node_id] = GraphNodeViewModel(
             id=node_id,
             text="新しい問い",
-            secondary_text="背景へドロップして追加",
+            secondary_text=None,
             position_x=position_x - width / 2.0,
             position_y=position_y - height / 2.0,
             width=width,
