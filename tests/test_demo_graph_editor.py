@@ -105,7 +105,7 @@ def test_create_node_connected_from_adds_a_node_and_an_edge() -> None:
     assert len(graph_after.nodes) == len(graph_before.nodes) + 1
     assert len(graph_after.edges) == len(graph_before.edges) + 1
     created_node = next(node for node in graph_after.nodes if node.id == node_id)
-    assert (created_node.position_x, created_node.position_y) == (402.5, 507.5)
+    assert (created_node.position_x, created_node.position_y, created_node.width) == (377.5, 507.5, 285.0)
     assert any(edge.source_node_id == "goal" and edge.target_node_id == node_id for edge in graph_after.edges)
 
 
@@ -150,7 +150,7 @@ def test_create_question_node_at_adds_an_unconnected_question() -> None:
     graph = editor.graph()
 
     node = next(node for node in graph.nodes if node.id == node_id)
-    assert (node.position_x, node.position_y, node.badge_text) == (402.5, 507.5, None)
+    assert (node.position_x, node.position_y, node.width, node.badge_text) == (377.5, 507.5, 285.0, None)
     assert node.secondary_text is None
     assert all(node_id not in (edge.source_node_id, edge.target_node_id) for edge in graph.edges)
 

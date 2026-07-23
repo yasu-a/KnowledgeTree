@@ -252,6 +252,28 @@ def test_adding_a_node_expands_the_scrollable_scene_rect(qtbot: object) -> None:
     assert canvas.sceneRect().bottom() >= 2100.0
 
 
+def test_long_node_text_expands_the_node_in_detail_mode(qtbot: object) -> None:
+    """詳細表示では、長い本文を折り返して表示できる高さへノードを自動拡張する。"""
+    canvas = GraphCanvasWidget()
+    qtbot.addWidget(canvas)
+    node = GraphNodeViewModel(
+        id="long-node",
+        text="長い本文を持つ問い",
+        secondary_text="本文の折り返し表示を確認するための長いテキストです。" * 8,
+        position_x=0.0,
+        position_y=0.0,
+        width=235.0,
+        height=105.0,
+        style_key="question",
+    )
+
+    canvas.set_graph(GraphViewModel((node,), ()))
+
+    assert canvas._nodes[node.id].boundingRect().width() == node.width
+    assert canvas._nodes[node.id].boundingRect().height() > node.height
+    assert canvas._nodes[node.id]._title_font().pointSizeF() == 14.0
+
+
 def _wheel_event(modifiers: Qt.KeyboardModifier) -> QWheelEvent:
     """指定修飾キー付きの上方向ホイールイベントを作る。"""
     return QWheelEvent(

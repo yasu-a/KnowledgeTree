@@ -109,9 +109,9 @@ class EdgeItem(QGraphicsObject):
         """線と、有向の場合は終端矢印を描画する。"""
         del option, widget
         color = self._style.selection_line if self.isSelected() else self._style.line
-        width = 3.0 if self.isSelected() else 1.8
+        width = 7.5 if self.isSelected() else 1.8
         if self._hovered and not self.isSelected():
-            width = 2.5
+            width = 6.25
         painter.setPen(QPen(color, width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(self._path)

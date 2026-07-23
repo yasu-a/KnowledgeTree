@@ -112,7 +112,7 @@ class DemoGraphEditor:
         target = self._nodes[edge.target_node_id]
         node_id = f"inserted-node-{self._next_node_number}"
         self._next_node_number += 1
-        width = 60.0
+        width = 110.0
         height = 52.0
         source_center_x = source.position_x + source.width / 2.0
         source_center_y = source.position_y + source.height / 2.0
@@ -241,7 +241,7 @@ class DemoGraphEditor:
         # ドロップ位置を中心に、デモ用の既定ノードを作る。
         node_id = f"created-node-{self._next_node_number}"
         self._next_node_number += 1
-        width = 235.0
+        width = 285.0
         height = 105.0
         self._nodes[node_id] = GraphNodeViewModel(
             id=node_id,
@@ -265,7 +265,7 @@ class DemoGraphEditor:
         """指定位置を中心に、接続を持たない質問ノードを作成する。"""
         node_id = f"created-node-{self._next_node_number}"
         self._next_node_number += 1
-        width = 235.0
+        width = 285.0
         height = 105.0
         # Canvas上の指定地点を、新しい質問ノードの中心として使う。
         self._nodes[node_id] = GraphNodeViewModel(
@@ -285,9 +285,10 @@ class DemoGraphEditor:
         """指定位置を中心に、接続を持たないメモノードを作成する。"""
         node_id = f"memo-node-{self._next_node_number}"
         self._next_node_number += 1
+        width = 270.0
         self._nodes[node_id] = GraphNodeViewModel(
-            id=node_id, text="新しいメモ", secondary_text="", position_x=position_x - 110.0, position_y=position_y - 45.0,
-            width=220.0, height=90.0, style_key="project-node:memo", node_kind=NodeKind.MEMO,
+            id=node_id, text="新しいメモ", secondary_text="", position_x=position_x - width / 2.0, position_y=position_y - 45.0,
+            width=width, height=90.0, style_key="project-node:memo", node_kind=NodeKind.MEMO,
         )
         self._child_combinations[node_id] = ChildCombination.ALL
         return node_id
@@ -296,9 +297,10 @@ class DemoGraphEditor:
         """未選択の文献ノードを、指定位置へ作成する。"""
         node_id = f"reference-node-{self._next_node_number}"
         self._next_node_number += 1
+        width = 290.0
         self._nodes[node_id] = GraphNodeViewModel(
-            id=node_id, text="文献を選択してください", secondary_text=None, position_x=position_x - 120.0, position_y=position_y - 50.0,
-            width=240.0, height=100.0, style_key="project-node:reference", node_kind=NodeKind.REFERENCE, reference_link=None,
+            id=node_id, text="文献を選択してください", secondary_text=None, position_x=position_x - width / 2.0, position_y=position_y - 50.0,
+            width=width, height=100.0, style_key="project-node:reference", node_kind=NodeKind.REFERENCE, reference_link=None,
         )
         self._child_combinations[node_id] = ChildCombination.ALL
         return node_id
