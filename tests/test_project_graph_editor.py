@@ -31,6 +31,7 @@ def test_insert_node_on_edge_splits_the_semantic_edge() -> None:
 
     assert any(edge.source_node_id == goal_id and edge.target_node_id == node_id and edge.label == "refines" for edge in edges)
     assert any(edge.source_node_id == node_id and edge.target_node_id == operation_id and edge.label == "refines" for edge in edges)
+    assert (editor.layout().node_layout(node_id).width, editor.layout().node_layout(node_id).height) == (285.0, 105.0)
 
 
 def test_new_nodes_receive_random_ids_and_default_layouts() -> None:

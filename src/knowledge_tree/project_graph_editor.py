@@ -121,15 +121,15 @@ class ProjectGraphEditor:
 
     def create_question_node_at(self, position_x: float, position_y: float) -> str:
         """指定点を中心として新しい質問ノードを作る。"""
-        return self._add_node(self._factory.create_question(), position_x, position_y, 285.0, 105.0)
+        return self._add_node(self._factory.create_question(), position_x, position_y, *self._default_node_size(NodeKind.QUESTION))
 
     def create_memo_node_at(self, position_x: float, position_y: float) -> str:
         """指定点を中心として新しいメモノードを作る。"""
-        return self._add_node(self._factory.create_memo(), position_x, position_y, 270.0, 90.0)
+        return self._add_node(self._factory.create_memo(), position_x, position_y, *self._default_node_size(NodeKind.MEMO))
 
     def create_reference_node_at(self, position_x: float, position_y: float) -> str:
         """指定点を中心として未選択の文献ノードを作る。"""
-        return self._add_node(self._factory.create_reference(), position_x, position_y, 290.0, 100.0)
+        return self._add_node(self._factory.create_reference(), position_x, position_y, *self._default_node_size(NodeKind.REFERENCE))
 
     def create_node_connected_from(self, source_node_id: str, position_x: float, position_y: float, edge_label: str = "", edge_style_key: str = "") -> str | None:
         """背景ドロップ用に質問ノードと始点からのエッジをまとめて作る。"""
@@ -180,7 +180,7 @@ class ProjectGraphEditor:
         center_x = (source_layout.position_x + source_layout.width / 2 + target_layout.position_x + target_layout.width / 2) / 2
         center_y = (source_layout.position_y + source_layout.height / 2 + target_layout.position_y + target_layout.height / 2) / 2
         creators = {NodeKind.QUESTION: self._factory.create_question, NodeKind.MEMO: self._factory.create_memo, NodeKind.REFERENCE: self._factory.create_reference}
-        node_id = self._add_node(creators[node_kind](), center_x, center_y, 110.0, 52.0)
+        node_id = self._add_node(creators[node_kind](), center_x, center_y, *self._default_node_size(node_kind))
         first = KnowledgeEdge(edge.id, edge.source_node_id, node_id, edge.label)
         second = self._factory.create_edge(node_id, edge.target_node_id, edge.label)
         self._edges[first.id], self._edges[second.id] = first, second
@@ -197,6 +197,14 @@ class ProjectGraphEditor:
         self._nodes[node.id] = node
         self._node_layouts[node.id] = NodeLayout(node.id, center_x - width / 2, center_y - height / 2, width, height)
         return node.id
+
+    def _default_node_size(self, node_kind: NodeKind) -> tuple[float, float]:
+        """ノード種別に対応する新規作成時の標準サイズを返す。"""
+        return {
+            NodeKind.QUESTION: (285.0, 105.0),
+            NodeKind.MEMO: (270.0, 90.0),
+            NodeKind.REFERENCE: (290.0, 100.0),
+        }[node_kind]
 
 
     def _remove_node_without_reconnection(self, node_id: str) -> None:
