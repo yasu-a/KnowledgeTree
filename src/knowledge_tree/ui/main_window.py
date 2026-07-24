@@ -337,7 +337,7 @@ class MainWindow(QMainWindow):
     def _show_canvas_context_menu(self, scene_position: QPointF, global_position: QPoint) -> None:
         """背景のコンテキストメニューを表示する。"""
         menu = QMenu(self)
-        add_node_action = menu.addAction("質問ノードを追加")
+        add_node_action = menu.addAction("問いノードを追加")
         add_node_action.triggered.connect(lambda: self._create_question_node(scene_position))
         add_memo_action = menu.addAction("メモノードを追加")
         add_memo_action.triggered.connect(lambda: self._create_memo_node(scene_position))
@@ -478,12 +478,12 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("ノードと新しい接続を追加しました。")
 
     def _create_question_node(self, scene_position: QPointF) -> None:
-        """背景メニューの指定位置へ、接続を持たない質問ノードを追加する。"""
+        """背景メニューの指定位置へ、接続を持たない問いノードを追加する。"""
         node_id = self._demo_graph_editor.create_question_node_at(scene_position.x(), scene_position.y())
         self.canvas.update_node(self._demo_graph_editor.node_view_model(node_id))
         self.canvas.select_node(node_id)
         self._mark_project_dirty()
-        self.statusBar().showMessage("質問ノードを追加しました。")
+        self.statusBar().showMessage("問いノードを追加しました。")
 
     def _create_memo_node(self, scene_position: QPointF) -> None:
         """背景メニューの指定位置へ、接続を持たないメモノードを追加する。"""
@@ -535,9 +535,9 @@ class MainWindow(QMainWindow):
         body: str,
         combination: ChildCombination,
     ) -> None:
-        """インスペクタの質問編集を外部状態とCanvasへ即時反映する。"""
+        """インスペクタの問い編集を外部状態とCanvasへ即時反映する。"""
         if not title.strip():
-            self.statusBar().showMessage("質問のタイトルは空欄にできません。")
+            self.statusBar().showMessage("問いのタイトルは空欄にできません。")
             return
         self._demo_graph_editor.update_question_node(node_id, title, body, combination)
         self.canvas.update_node(self._demo_graph_editor.node_view_model(node_id))

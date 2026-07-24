@@ -31,7 +31,7 @@ def test_creating_a_project_writes_one_complete_active_snapshot(tmp_path: Path) 
 
 
 def test_graph_json_contains_only_kind_specific_semantic_fields(tmp_path: Path) -> None:
-    """質問へ文献参照や位置を混在させず、UI情報はlayout.jsonへ分離する。"""
+    """問いへ文献参照や位置を混在させず、UI情報はlayout.jsonへ分離する。"""
     storage = ProjectStorage(tmp_path / "userdata")
     storage.create_project("分離")
     project_directory = tmp_path / "userdata" / "projects" / "分離"

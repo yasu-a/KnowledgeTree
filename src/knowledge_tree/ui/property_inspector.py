@@ -1,4 +1,4 @@
-"""選択中の質問ノードまたは関係エッジを編集する右側インスペクタ。"""
+"""選択中の問いノードまたは関係エッジを編集する右側インスペクタ。"""
 
 from PyQt6.QtCore import QSignalBlocker, pyqtSignal
 from PyQt6.QtGui import QColor, QIcon, QPixmap
@@ -12,7 +12,7 @@ from knowledge_tree.viewmodels.graph_viewmodels import GraphEdgeViewModel, Graph
 
 
 class PropertyInspector(QWidget):
-    """Canvasの選択対象に応じて、質問またはエッジの編集フォームを表示する。"""
+    """Canvasの選択対象に応じて、問いまたはエッジの編集フォームを表示する。"""
 
     question_changed = pyqtSignal(str, str, str, object)
     memo_changed = pyqtSignal(str, str, str)
@@ -21,7 +21,7 @@ class PropertyInspector(QWidget):
     reference_catalog_requested = pyqtSignal(str)
 
     def __init__(self, settings: ProjectSettings, parent: QWidget | None = None) -> None:
-        """選択なし・質問・エッジ用のフォームを持つインスペクタを初期化する。"""
+        """選択なし・問い・エッジ用のフォームを持つインスペクタを初期化する。"""
         super().__init__(parent)
         self._settings = settings
         self._node_id: str | None = None
@@ -51,7 +51,7 @@ class PropertyInspector(QWidget):
         self._stack.setCurrentWidget(self._empty_page)
 
     def show_question(self, node: GraphNodeViewModel, combination: ChildCombination) -> None:
-        """指定質問ノードの値をフォームへ表示する。"""
+        """指定問いノードの値をフォームへ表示する。"""
         self._node_id = node.id
         self._edge_id = None
         self._is_loading = True
@@ -131,11 +131,11 @@ class PropertyInspector(QWidget):
         return page
 
     def _create_node_page(self) -> QWidget:
-        """質問ノードのタイトル・本文・AND/ORを編集するページを作る。"""
+        """問いノードのタイトル・本文・AND/ORを編集するページを作る。"""
         page = QWidget(self)
         layout = QFormLayout(page)
         self.title_edit = QLineEdit(page)
-        self.title_edit.setPlaceholderText("質問のタイトル")
+        self.title_edit.setPlaceholderText("問いのタイトル")
         self.body_edit = QPlainTextEdit(page)
         self.body_edit.setPlaceholderText("補足・本文")
         self.combination_combo = QComboBox(page)
@@ -185,7 +185,7 @@ class PropertyInspector(QWidget):
         return page
 
     def _emit_question_changed(self) -> None:
-        """フォーム入力から、現在の質問ノードの編集要求を送る。"""
+        """フォーム入力から、現在の問いノードの編集要求を送る。"""
         if self._is_loading or self._node_id is None:
             return
         combination = self.combination_combo.currentData()

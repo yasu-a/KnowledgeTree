@@ -36,7 +36,7 @@ class GraphFactory:
         body: str = "",
         child_combination: ChildCombination = ChildCombination.NONE,
     ) -> QuestionNode:
-        """既定内容の質問ノードを生成する。"""
+        """既定内容の問いノードを生成する。"""
         return QuestionNode(self._id_generator.new_id(), title, body, child_combination)
 
     def create_memo(self, title: str = "新しいメモ", body: str = "") -> MemoNode:

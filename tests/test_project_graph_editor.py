@@ -46,7 +46,7 @@ def test_new_nodes_receive_random_ids_and_default_layouts() -> None:
 
 
 def test_editing_question_updates_semantics_and_canvas_projection() -> None:
-    """質問本文とAND/ORは意味論に保存し、Canvasではバッジへ投影する。"""
+    """問い本文とAND/ORは意味論に保存し、Canvasではバッジへ投影する。"""
     editor = _editor()
     goal_id = _node_id(editor, "社会的・工学的な大きな目標")
     editor.update_question_node(goal_id, "更新後の問い", "本文", ChildCombination.ANY)

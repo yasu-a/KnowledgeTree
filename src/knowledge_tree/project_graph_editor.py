@@ -66,7 +66,7 @@ class ProjectGraphEditor:
         return next(edge for edge in self.graph().edges if edge.id == edge_id)
 
     def child_combination(self, node_id: str) -> ChildCombination:
-        """指定質問ノードの子の組合せ条件を返す。"""
+        """指定問いノードの子の組合せ条件を返す。"""
         node = self._nodes[node_id]
         return node.child_combination if isinstance(node, QuestionNode) else ChildCombination.NONE
 
@@ -80,7 +80,7 @@ class ProjectGraphEditor:
         return node.reference_link if isinstance(node, ReferenceNode) else None
 
     def update_question_node(self, node_id: str, title: str, body: str, combination: ChildCombination) -> None:
-        """質問ノードの意味論的な本文と組合せ条件を更新する。"""
+        """問いノードの意味論的な本文と組合せ条件を更新する。"""
         node = self._nodes[node_id]
         if isinstance(node, QuestionNode):
             self._nodes[node_id] = replace(node, title=title, body=body, child_combination=combination)
@@ -120,7 +120,7 @@ class ProjectGraphEditor:
         self._edge_layouts[edge_id] = replace(self._edge_layouts[edge_id], label_offset_x=offset_x, label_offset_y=offset_y)
 
     def create_question_node_at(self, position_x: float, position_y: float) -> str:
-        """指定点を中心として新しい質問ノードを作る。"""
+        """指定点を中心として新しい問いノードを作る。"""
         return self._add_node(self._factory.create_question(), position_x, position_y, *self._default_node_size(NodeKind.QUESTION))
 
     def create_memo_node_at(self, position_x: float, position_y: float) -> str:
@@ -132,7 +132,7 @@ class ProjectGraphEditor:
         return self._add_node(self._factory.create_reference(), position_x, position_y, *self._default_node_size(NodeKind.REFERENCE))
 
     def create_node_connected_from(self, source_node_id: str, position_x: float, position_y: float, edge_label: str = "", edge_style_key: str = "") -> str | None:
-        """背景ドロップ用に質問ノードと始点からのエッジをまとめて作る。"""
+        """背景ドロップ用に問いノードと始点からのエッジをまとめて作る。"""
         node_id = self.create_question_node_at(position_x, position_y)
         if self.add_edge(source_node_id, node_id, edge_label, edge_style_key) is not None:
             return node_id

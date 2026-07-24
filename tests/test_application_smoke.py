@@ -115,12 +115,12 @@ def test_inspector_edits_a_selected_question_and_edge(qtbot: object) -> None:
     operation_id = _node_id(window, "量子プロセッサを\n安定して運用するには？")
     window.canvas.select_node(goal_id)
     qtbot.waitUntil(lambda: window.inspector.title_edit.text() == "社会的・工学的な大きな目標")
-    window.inspector.title_edit.setText("更新した質問")
+    window.inspector.title_edit.setText("更新した問い")
     window.inspector.title_edit.editingFinished.emit()
     window.inspector.combination_combo.setCurrentIndex(2)
 
     node = window._demo_graph_editor.node_view_model(goal_id)
-    assert (node.text, node.badge_text) == ("更新した質問", "OR")
+    assert (node.text, node.badge_text) == ("更新した問い", "OR")
     assert window.canvas._nodes[goal_id]._view_model.badge_text == "OR"
 
     window.canvas.select_edge(_edge_id(window, goal_id, operation_id))

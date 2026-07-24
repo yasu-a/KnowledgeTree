@@ -8,7 +8,7 @@ from knowledge_tree.reference_catalog import ReferenceLink
 
 
 class ChildCombination(StrEnum):
-    """質問の子ノードを満たすための組合せ条件。"""
+    """問いの子ノードを満たすための組合せ条件。"""
 
     NONE = ""
     ALL = "AND"
