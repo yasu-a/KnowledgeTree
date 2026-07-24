@@ -5,7 +5,7 @@ from PyQt6.QtGui import QColor, QIcon, QPixmap
 from PyQt6.QtWidgets import QComboBox, QFormLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QStackedWidget, QVBoxLayout, QWidget
 
 from knowledge_tree.color_palette import ColorPalette, ColorToken
-from knowledge_tree.demo_graph_editor import ChildCombination
+from knowledge_tree.domain_graph import ChildCombination
 from knowledge_tree.project_settings import ProjectSettings
 from knowledge_tree.reference_catalog import ReferenceLink
 from knowledge_tree.viewmodels.graph_viewmodels import GraphEdgeViewModel, GraphNodeViewModel
@@ -94,7 +94,7 @@ class PropertyInspector(QWidget):
         self._is_loading = False
         self._stack.setCurrentWidget(self._memo_page)
 
-    def show_reference(self, node: GraphNodeViewModel, choices: tuple[tuple[ReferenceLink, str], ...]) -> None:
+    def show_reference(self, node: GraphNodeViewModel, reference_link: ReferenceLink | None, choices: tuple[tuple[ReferenceLink, str], ...]) -> None:
         """指定文献ノードの参照先を選択できるフォームへ表示する。"""
         self._node_id = node.id
         self._edge_id = None
@@ -104,16 +104,16 @@ class PropertyInspector(QWidget):
         self.reference_combo.addItem("（未選択）", None)
         for link, title in choices:
             self.reference_combo.addItem(f"[{link.kind.value.title()}] {title}", link)
-        if node.reference_link is not None and all(link != node.reference_link for link, _ in choices):
+        if reference_link is not None and all(link != reference_link for link, _ in choices):
             self.reference_combo.addItem(
-                f"[{node.reference_link.kind.value.title()}] （削除された文献）",
-                node.reference_link,
+                f"[{reference_link.kind.value.title()}] （削除された文献）",
+                reference_link,
             )
         selected_index = next(
             (
                 index
                 for index in range(self.reference_combo.count())
-                if self.reference_combo.itemData(index) == node.reference_link
+                if self.reference_combo.itemData(index) == reference_link
             ),
             0,
         )

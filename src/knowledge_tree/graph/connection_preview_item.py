@@ -3,7 +3,7 @@
 import math
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen, QPolygonF
+from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsObject, QStyleOptionGraphicsItem, QWidget
 
 
@@ -78,7 +78,12 @@ class ConnectionPreviewItem(QGraphicsObject):
         right = QPointF(end.x() - length * math.cos(angle + 0.45), end.y() - length * math.sin(angle + 0.45))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(color)
-        painter.drawPolygon(QPolygonF((end, left, right)))
+        # QPolygonFのPythonシーケンス変換を経由せず、三角形を直接Pathとして描く。
+        arrow_path = QPainterPath(end)
+        arrow_path.lineTo(left)
+        arrow_path.lineTo(right)
+        arrow_path.closeSubpath()
+        painter.drawPath(arrow_path)
 
     @staticmethod
     def _connection_port(rectangle: QRectF, toward: QPointF) -> tuple[QPointF, QPointF]:

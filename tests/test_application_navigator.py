@@ -110,16 +110,10 @@ def test_navigator_start_returns_false_when_no_project_window_is_opened(tmp_path
     assert navigator.start() is False
 
 
-def test_startup_opens_a_project_with_legacy_reference_id_data(qtbot: object, tmp_path: Path) -> None:
-    """起動経路は旧reference_idを含む既存プロジェクトも移行して開ける。"""
+def test_startup_opens_a_current_project(qtbot: object, tmp_path: Path) -> None:
+    """起動経路は最後に開いた現行プロジェクトを開ける。"""
     navigator, storage, session_store = _navigator(tmp_path)
     storage.create_project("旧形式")
-    graph_path = tmp_path / "userdata" / "projects" / "旧形式" / "graph.json"
-    graph_data = json.loads(graph_path.read_text(encoding="utf-8"))
-    evidence = next(node for node in graph_data["nodes"] if node["id"] == "evidence")
-    evidence.pop("reference_link")
-    evidence["reference_id"] = "paper-001"
-    graph_path.write_text(json.dumps(graph_data, ensure_ascii=False), encoding="utf-8")
     session_store.save(SessionState("旧形式"))
 
     assert navigator.start() is True

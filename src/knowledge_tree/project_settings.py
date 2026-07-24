@@ -41,6 +41,10 @@ class ProjectSettings:
         """現在定義されているエッジ種類を表示順で返す。"""
         return tuple(self._edge_types)
 
+    def edge_type_by_label(self, label: str) -> EdgeType | None:
+        """関係ラベルを識別子として、対応するエッジ種類を返す。"""
+        return next((edge_type for edge_type in self._edge_types if edge_type.label == label), None)
+
     def copy(self) -> "ProjectSettings":
         """ダイアログ内の編集に使う、独立した設定コピーを返す。"""
         return ProjectSettings(list(self._edge_types), dict(self._node_colors))
@@ -68,6 +72,8 @@ class ProjectSettings:
         normalized_label = label.strip()
         if not normalized_label:
             raise ValueError("関係ラベルを入力してください。")
+        if any(item.id != edge_type_id and item.label == normalized_label for item in self._edge_types):
+            raise ValueError("関係ラベルは重複できません。")
         normalized_endpoints = tuple(dict.fromkeys(allowed_endpoints))
         for index, edge_type in enumerate(self._edge_types):
             if edge_type.id == edge_type_id:
@@ -78,12 +84,18 @@ class ProjectSettings:
     def add_edge_type(self) -> EdgeType:
         """編集用の新しい関係種類を追加して返す。"""
         used_ids = {edge_type.id for edge_type in self._edge_types}
+        used_labels = {edge_type.label for edge_type in self._edge_types}
         sequence = 1
         while f"edge-type-{sequence}" in used_ids:
             sequence += 1
+        label_sequence = 1
+        label = "newRelation"
+        while label in used_labels:
+            label_sequence += 1
+            label = f"newRelation{label_sequence}"
         edge_type = EdgeType(
             f"edge-type-{sequence}",
-            "newRelation",
+            label,
             ColorToken.SLATE,
             ((NodeKind.QUESTION, NodeKind.QUESTION),),
         )

@@ -3,6 +3,7 @@
 from knowledge_tree.color_palette import ColorPalette, ColorToken
 from knowledge_tree.project_settings import ProjectSettings
 from knowledge_tree.node_kind import NodeKind
+import pytest
 from PyQt6.QtWidgets import QTabWidget
 from knowledge_tree.ui.edge_type_editor_widget import EdgeTypeEditorWidget
 
@@ -47,6 +48,15 @@ def test_edge_type_editor_adds_edits_and_removes_relation_types(qtbot: object) -
     assert created.allowed_endpoints == ((NodeKind.QUESTION, NodeKind.QUESTION),)
     widget.remove_button.click()
     assert all(edge_type.id != created.id for edge_type in settings.edge_types())
+
+
+def test_edge_type_labels_are_unique_relation_identifiers() -> None:
+    """エッジ種類ラベルは、グラフ上の関係種類を一意に識別する。"""
+    settings = ProjectSettings()
+    created = settings.add_edge_type()
+
+    with pytest.raises(ValueError, match="重複"):
+        settings.update_edge_type(created.id, "refines", ColorToken.SLATE, ((NodeKind.QUESTION, NodeKind.QUESTION),))
 
 
 def test_edge_type_editor_updates_node_colors(qtbot: object) -> None:

@@ -3,6 +3,7 @@
 from PyQt6.QtCore import QPoint, QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QFontMetricsF, QPainter, QPen
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsObject, QGraphicsSceneContextMenuEvent, QGraphicsSceneHoverEvent, QGraphicsSceneMouseEvent, QStyleOptionGraphicsItem, QWidget
+from PyQt6 import sip
 
 from knowledge_tree.graph.styles import NodeStyle
 from knowledge_tree.viewmodels.graph_viewmodels import GraphNodeViewModel
@@ -79,10 +80,14 @@ class NodeItem(QGraphicsObject):
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget | None = None) -> None:
         """角丸枠・主テキスト・副テキストを描画する。"""
         del widget
+        # Scene再構築後に届いた保留paintでは、C++側が既に破棄済みの場合がある。
+        if sip.isdeleted(self):
+            return
         rectangle = self.boundingRect()
-        border = self._style.selection_border if self.isSelected() or self._connection_target_active else self._style.border
-        pen_width = self._ACTIVE_BORDER_WIDTH if self.isSelected() or self._connection_target_active else 1.5
-        if self._hovered and not self.isSelected():
+        selected = self.isSelected()
+        border = self._style.selection_border if selected or self._connection_target_active else self._style.border
+        pen_width = self._ACTIVE_BORDER_WIDTH if selected or self._connection_target_active else 1.5
+        if self._hovered and not selected:
             pen_width = self._HOVER_BORDER_WIDTH
         painter.setPen(QPen(border, pen_width))
         painter.setBrush(self._style.background)

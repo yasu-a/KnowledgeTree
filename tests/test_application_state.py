@@ -43,8 +43,9 @@ def test_project_session_saves_its_own_graph_changes(tmp_path: Path) -> None:
     storage.create_project("セッション")
     session = ProjectSession.open(storage, "セッション")
 
-    session.graph_editor.update_node_position("isolated", 700.0, 400.0)
+    isolated_id = next(node.id for node in session.graph_editor.semantic_graph().nodes if getattr(node, "title", None) == "未整理のメモ")
+    session.graph_editor.update_node_position(isolated_id, 700.0, 400.0)
     session.save()
 
-    isolated_node = next(node for node in storage.load_project("セッション").graph.nodes if node.id == "isolated")
-    assert (isolated_node.position_x, isolated_node.position_y) == (700.0, 400.0)
+    layout = storage.load_project("セッション").layout.node_layout(isolated_id)
+    assert (layout.position_x, layout.position_y) == (700.0, 400.0)

@@ -10,8 +10,23 @@ from knowledge_tree.project_storage import ProjectStorage
 from knowledge_tree.reference_catalog import Book, ReferenceKind, ReferenceLink
 from knowledge_tree import application as application_module
 from knowledge_tree.application_version import APPLICATION_VERSION
-from knowledge_tree.project_format_version import CURRENT_PROJECT_FORMAT_VERSION
 from knowledge_tree.ui.about_dialog import AboutDialog
+from knowledge_tree.domain_graph import ReferenceNode
+
+
+def _node_id(window: MainWindow, title: str) -> str:
+    """デモの表示タイトルから、テスト対象の生成済みノードIDを取得する。"""
+    return next(node.id for node in window._demo_graph_editor.semantic_graph().nodes if getattr(node, "title", None) == title)
+
+
+def _reference_node_id(window: MainWindow) -> str:
+    """デモの文献ノードIDを取得する。"""
+    return next(node.id for node in window._demo_graph_editor.semantic_graph().nodes if isinstance(node, ReferenceNode))
+
+
+def _edge_id(window: MainWindow, source_node_id: str, target_node_id: str) -> str:
+    """両端ノードから、テスト対象の生成済みエッジIDを取得する。"""
+    return next(edge.id for edge in window._demo_graph_editor.semantic_graph().edges if (edge.source_node_id, edge.target_node_id) == (source_node_id, target_node_id))
 
 
 def test_main_window_displays_the_canvas(qtbot: object) -> None:
@@ -24,15 +39,14 @@ def test_main_window_displays_the_canvas(qtbot: object) -> None:
     assert window.canvas.selected_node_ids() == []
 
 
-def test_about_dialog_displays_current_application_and_project_format_versions(qtbot: object) -> None:
-    """Aboutダイアログは現在のアプリ版とプロジェクト形式版を表示する。"""
-    dialog = AboutDialog(APPLICATION_VERSION, CURRENT_PROJECT_FORMAT_VERSION)
+def test_about_dialog_displays_the_unified_knowledge_tree_version(qtbot: object) -> None:
+    """Aboutダイアログはアプリと保存形式に共通のバージョンを表示する。"""
+    dialog = AboutDialog(APPLICATION_VERSION)
     qtbot.addWidget(dialog)
 
     labels = [label.text() for label in dialog.findChildren(QLabel)]
 
-    assert any("0.1" in text and "アプリケーション" in text for text in labels)
-    assert any("0.1" in text and "プロジェクト形式" in text for text in labels)
+    assert any("1.0" in text and "バージョン" in text for text in labels)
     assert any("https://github.com/yasu-a/KnowledgeTree" in text for text in labels)
 
 
@@ -50,7 +64,7 @@ def test_application_run_initializes_the_main_startup_path(monkeypatch: object, 
 
         def setApplicationVersion(self, application_version: str) -> None:
             """設定されたアプリケーション版を記録する。"""
-            assert application_version == "0.1"
+            assert application_version == "1.0"
 
         def exec(self) -> int:
             """テスト用の終了コードを返す。"""
@@ -83,10 +97,12 @@ def test_adding_an_edge_keeps_an_externally_updated_node_position(qtbot: object)
     window = MainWindow()
     qtbot.addWidget(window)
 
-    window._show_node_move("isolated", QPointF(80.0, 500.0), QPointF(620.0, 430.0))
-    window._create_demo_edge("question", "isolated")
+    isolated_id = _node_id(window, "未整理のメモ")
+    question_id = _node_id(window, "処置に必要な情報だけを\n抽出できるか？")
+    window._show_node_move(isolated_id, QPointF(80.0, 500.0), QPointF(620.0, 430.0))
+    window._create_demo_edge(question_id, isolated_id)
 
-    assert window.canvas._nodes["isolated"].pos() == QPointF(620.0, 430.0)
+    assert window.canvas._nodes[isolated_id].pos() == QPointF(620.0, 430.0)
 
 
 def test_inspector_edits_a_selected_question_and_edge(qtbot: object) -> None:
@@ -95,17 +111,19 @@ def test_inspector_edits_a_selected_question_and_edge(qtbot: object) -> None:
     qtbot.addWidget(window)
     window.show()
 
-    window.canvas.select_node("goal")
+    goal_id = _node_id(window, "社会的・工学的な大きな目標")
+    operation_id = _node_id(window, "量子プロセッサを\n安定して運用するには？")
+    window.canvas.select_node(goal_id)
     qtbot.waitUntil(lambda: window.inspector.title_edit.text() == "社会的・工学的な大きな目標")
     window.inspector.title_edit.setText("更新した質問")
     window.inspector.title_edit.editingFinished.emit()
     window.inspector.combination_combo.setCurrentIndex(2)
 
-    node = window._demo_graph_editor.node_view_model("goal")
+    node = window._demo_graph_editor.node_view_model(goal_id)
     assert (node.text, node.badge_text) == ("更新した質問", "OR")
-    assert window.canvas._nodes["goal"]._view_model.badge_text == "OR"
+    assert window.canvas._nodes[goal_id]._view_model.badge_text == "OR"
 
-    window.canvas.select_edge("edge-goal")
+    window.canvas.select_edge(_edge_id(window, goal_id, operation_id))
     qtbot.waitUntil(lambda: window.inspector.edge_type_combo.currentText() == "refines")
     assert window.inspector.edge_type_combo.itemIcon(0).isNull() is False
 
@@ -115,9 +133,11 @@ def test_node_kinds_select_the_default_relation_for_new_edges(qtbot: object) -> 
     window = MainWindow()
     qtbot.addWidget(window)
 
-    window._create_demo_edge("evidence", "question")
+    evidence_id = _reference_node_id(window)
+    question_id = _node_id(window, "処置に必要な情報だけを\n抽出できるか？")
+    window._create_demo_edge(evidence_id, question_id)
 
-    edge = next(edge for edge in window._demo_graph_editor.graph().edges if edge.source_node_id == "evidence" and edge.target_node_id == "question")
+    edge = next(edge for edge in window._demo_graph_editor.graph().edges if edge.source_node_id == evidence_id and edge.target_node_id == question_id)
     assert (edge.label, edge.style_key) == ("contributesTo", "global-edge-type:contributes-to")
 
 
@@ -140,14 +160,17 @@ def test_inspector_can_be_reopened_from_the_view_menu_and_double_click_handlers(
     assert window.inspector_dock.isVisible() is True
 
     window.inspector_dock.hide()
-    window._show_node_inspector("goal")
+    goal_id = _node_id(window, "社会的・工学的な大きな目標")
+    operation_id = _node_id(window, "量子プロセッサを\n安定して運用するには？")
+    window._show_node_inspector(goal_id)
     assert window.inspector_dock.isVisible() is True
-    assert window.canvas.selected_node_ids() == ["goal"]
+    assert window.canvas.selected_node_ids() == [goal_id]
 
     window.inspector_dock.hide()
-    window._show_edge_inspector("edge-goal")
+    edge_id = _edge_id(window, goal_id, operation_id)
+    window._show_edge_inspector(edge_id)
     assert window.inspector_dock.isVisible() is True
-    assert window.canvas.selected_edge_ids() == ["edge-goal"]
+    assert window.canvas.selected_edge_ids() == [edge_id]
 
 
 def test_opening_inspector_preserves_the_canvas_top_left_scene_position(qtbot: object) -> None:
@@ -159,7 +182,7 @@ def test_opening_inspector_preserves_the_canvas_top_left_scene_position(qtbot: o
     qtbot.wait(10)
     top_left_before = window.canvas.mapToScene(window.canvas.viewport().rect().topLeft())
 
-    window._show_node_inspector("goal")
+    window._show_node_inspector(_node_id(window, "社会的・工学的な大きな目標"))
     qtbot.wait(20)
     top_left_after = window.canvas.mapToScene(window.canvas.viewport().rect().topLeft())
 
@@ -173,9 +196,40 @@ def test_disallowed_node_kind_combination_does_not_create_an_edge(qtbot: object)
     qtbot.addWidget(window)
 
     edge_count_before = len(window._demo_graph_editor.graph().edges)
-    window._create_demo_edge("question", "isolated")
+    window._create_demo_edge(_node_id(window, "処置に必要な情報だけを\n抽出できるか？"), _node_id(window, "未整理のメモ"))
 
     assert len(window._demo_graph_editor.graph().edges) == edge_count_before
+
+
+def test_question_deletion_keeps_only_same_type_question_connections(qtbot: object) -> None:
+    """問い削除ではrefinesだけをつなぎ直し、文献由来の関係は切断する。"""
+    window = MainWindow()
+    qtbot.addWidget(window)
+    evidence_id = _reference_node_id(window)
+    operation_id = _node_id(window, "量子プロセッサを\n安定して運用するには？")
+    goal_id = _node_id(window, "社会的・工学的な大きな目標")
+    diagnosis_id = _node_id(window, "診断・較正の時間と\n実験資源を削減できるか？")
+    window._create_demo_edge(evidence_id, operation_id)
+
+    window._request_node_deletion(operation_id)
+
+    edges = window._demo_graph_editor.graph().edges
+    assert all(operation_id not in (edge.source_node_id, edge.target_node_id) for edge in edges)
+    assert any((edge.source_node_id, edge.target_node_id, edge.label) == (goal_id, diagnosis_id, "refines") for edge in edges)
+    assert not any((edge.source_node_id, edge.target_node_id) == (evidence_id, diagnosis_id) for edge in edges)
+
+
+def test_contribution_edge_cannot_be_split_by_inserting_a_question(qtbot: object) -> None:
+    """contributesToを問いで分割する操作は、関係規則により反映しない。"""
+    window = MainWindow()
+    qtbot.addWidget(window)
+    graph_before = window._demo_graph_editor.graph()
+
+    window._insert_node_on_edge(_edge_id(window, _reference_node_id(window), _node_id(window, "処置に必要な情報だけを\n抽出できるか？")))
+
+    graph_after = window._demo_graph_editor.graph()
+    assert len(graph_after.nodes) == len(graph_before.nodes)
+    assert len(graph_after.edges) == len(graph_before.edges)
 
 
 def test_main_window_autosaves_changes_when_opened_from_a_project(qtbot: object, tmp_path: Path) -> None:
@@ -185,11 +239,12 @@ def test_main_window_autosaves_changes_when_opened_from_a_project(qtbot: object,
     window = MainWindow(ProjectSession.open(storage, "自動保存"))
     qtbot.addWidget(window)
 
-    window._show_node_move("isolated", QPointF(80.0, 500.0), QPointF(620.0, 430.0))
+    isolated_id = _node_id(window, "未整理のメモ")
+    window._show_node_move(isolated_id, QPointF(80.0, 500.0), QPointF(620.0, 430.0))
 
     loaded = storage.load_project("自動保存")
-    isolated_node = next(node for node in loaded.graph.nodes if node.id == "isolated")
-    assert (isolated_node.position_x, isolated_node.position_y) == (620.0, 430.0)
+    isolated_layout = loaded.layout.node_layout(isolated_id)
+    assert (isolated_layout.position_x, isolated_layout.position_y) == (620.0, 430.0)
 
 
 def test_reference_node_is_created_unselected_and_can_select_a_catalog_record(qtbot: object, tmp_path: Path) -> None:
@@ -205,7 +260,7 @@ def test_reference_node_is_created_unselected_and_can_select_a_catalog_record(qt
     window._create_reference_node(QPointF(600.0, 400.0))
     node_id = window.canvas.selected_node_ids()[0]
     created = window._demo_graph_editor.node_view_model(node_id)
-    assert created.reference_link is None
+    assert window._demo_graph_editor.reference_link(node_id) is None
 
     window.canvas.select_node(node_id)
     index = next(
@@ -216,7 +271,7 @@ def test_reference_node_is_created_unselected_and_can_select_a_catalog_record(qt
     window.inspector.reference_combo.setCurrentIndex(index)
 
     updated = window._demo_graph_editor.node_view_model(node_id)
-    assert (updated.reference_link, updated.text, updated.badge_text) == (ReferenceLink(ReferenceKind.BOOK, record.id), "選択する書籍", "Book")
+    assert (window._demo_graph_editor.reference_link(node_id), updated.text, updated.badge_text) == (ReferenceLink(ReferenceKind.BOOK, record.id), "選択する書籍", "Book")
     window.canvas.clear_selection()
     window.canvas.select_node(node_id)
 
@@ -242,7 +297,7 @@ def test_reference_node_keeps_a_link_when_its_catalog_record_is_deleted(qtbot: o
     window.canvas.clear_selection()
     window.canvas.select_node(node_id)
 
-    assert updated.reference_link == link
+    assert window._demo_graph_editor.reference_link(node_id) == link
     assert updated.text == "削除された文献"
     assert updated.badge_text == "Book"
     assert window.inspector.reference_combo.currentData() == link

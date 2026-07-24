@@ -1,0 +1,14 @@
+{
+  "schema_version": 2,
+  "nodes": [
+    {"id": "q-and", "text": "親の問い", "secondary_text": "質問本文", "position_x": 10.0, "position_y": 20.0, "width": 300.0, "height": 110.0, "style_key": "project-node:question", "badge_text": "AND", "node_kind": "question", "reference_link": null},
+    {"id": "q-or", "text": "子の問い", "secondary_text": "子本文", "position_x": 410.0, "position_y": 20.0, "width": 280.0, "height": 100.0, "style_key": "project-node:question", "badge_text": "OR", "node_kind": "question", "reference_link": null},
+    {"id": "memo", "text": "メモ", "secondary_text": "メモ本文", "position_x": 50.0, "position_y": 250.0, "width": 260.0, "height": 90.0, "style_key": "project-node:memo", "badge_text": null, "node_kind": "memo", "reference_link": null},
+    {"id": "paper", "text": "旧文献", "secondary_text": "著者 / 2020", "position_x": 400.0, "position_y": 250.0, "width": 290.0, "height": 100.0, "style_key": "project-node:reference", "badge_text": "Paper", "node_kind": "reference", "reference_link": {"kind": "paper", "id": "paper-001"}}
+  ],
+  "edges": [
+    {"id": "e-refines", "source_node_id": "q-and", "target_node_id": "q-or", "label": "refines", "directed": true, "style_key": "global-edge-type:refines", "label_anchor": 0.3, "label_offset_x": 4.0, "label_offset_y": -5.0},
+    {"id": "e-contributes", "source_node_id": "paper", "target_node_id": "q-and", "label": "contributesTo", "directed": true, "style_key": "global-edge-type:contributes-to", "label_anchor": 0.5, "label_offset_x": 0.0, "label_offset_y": 0.0},
+    {"id": "e-untyped", "source_node_id": "memo", "target_node_id": "q-or", "label": "", "directed": true, "style_key": "default", "label_anchor": 0.7, "label_offset_x": 3.0, "label_offset_y": 2.0}
+  ]
+}

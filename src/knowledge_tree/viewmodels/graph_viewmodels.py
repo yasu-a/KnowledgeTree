@@ -2,8 +2,6 @@
 
 from dataclasses import dataclass
 
-from knowledge_tree.node_kind import NodeKind
-from knowledge_tree.reference_catalog import ReferenceLink
 
 
 @dataclass(frozen=True)
@@ -22,8 +20,6 @@ class GraphNodeViewModel:
     movable: bool = True
     selectable: bool = True
     locked: bool = False
-    node_kind: NodeKind = NodeKind.QUESTION
-    reference_link: ReferenceLink | None = None
 
 
 @dataclass(frozen=True)

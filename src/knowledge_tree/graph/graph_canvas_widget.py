@@ -78,15 +78,17 @@ class GraphCanvasWidget(QGraphicsView):
     def set_graph(self, view_model: GraphViewModel) -> None:
         """外部から受け取ったViewModelで表示を全置換する。"""
         self._is_rebuilding_graph = True
+        viewport = self.viewport()
+        viewport.setUpdatesEnabled(False)
         try:
-            # 破棄済みItemへの参照を避けるため、Sceneより先に保持辞書を空にする。
+            # 再構築中はView更新を止め、旧Itemへの保留paintを発生させない。
             self._clear_connection_preview()
-            # scene.clear() は選択変更signalを同期的に発火させ、Itemを破棄する。
-            # Python側の辞書を先に空にして、破棄済みラッパーを参照しないようにする。
+            # selectionChangedが同期発火しても、破棄済みラッパーを参照しないよう先に辞書を空にする。
             self._nodes.clear()
             self._edges.clear()
             self._edge_labels.clear()
             self._edge_label_connectors.clear()
+            # Sceneが所有する全Itemを、Qtの正式な所有権規約に従って一括破棄する。
             self._scene.clear()
             # ノードを先に作り、参照先ノードがあるエッジだけを追加する。
             for node_view_model in view_model.nodes:
@@ -96,6 +98,8 @@ class GraphCanvasWidget(QGraphicsView):
                     self._add_edge_item(edge_view_model)
             self._update_scene_rect()
         finally:
+            viewport.setUpdatesEnabled(True)
+            viewport.update()
             self._is_rebuilding_graph = False
         self._emit_selection_changed()
 

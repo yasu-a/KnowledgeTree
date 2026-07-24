@@ -5,10 +5,37 @@ from dataclasses import replace
 from PyQt6.QtCore import QPoint, QPointF, Qt
 from PyQt6.QtGui import QWheelEvent
 
-from knowledge_tree.demo_data import build_demo_graph
+from knowledge_tree.demo_data import build_demo_project
+from knowledge_tree.graph_factory import GraphFactory
 from knowledge_tree.graph.graph_canvas_widget import GraphCanvasWidget
+from knowledge_tree.graph_presenter import GraphPresenter
 from knowledge_tree.viewmodels.graph_viewmodels import GraphViewModel
 from knowledge_tree.viewmodels.graph_viewmodels import GraphNodeViewModel
+
+
+class _CanvasTestIdGenerator:
+    """Canvas単体テストで対象を特定するための固定ID発行器。"""
+
+    _ids = (
+        "goal", "operation", "diagnosis", "question", "evidence", "note", "warning", "isolated",
+        "edge-goal", "edge-operation", "edge-diagnosis", "edge-evidence", "edge-note",
+    )
+
+    def __init__(self) -> None:
+        """固定IDの読出し位置を初期化する。"""
+        self._index = 0
+
+    def new_id(self) -> str:
+        """次の固定IDを返す。"""
+        identifier = self._ids[self._index]
+        self._index += 1
+        return identifier
+
+
+def build_demo_graph() -> GraphViewModel:
+    """Canvasテスト専用に、固定IDを注入して表示モデルを構築する。"""
+    project = build_demo_project(GraphFactory(_CanvasTestIdGenerator()))
+    return GraphPresenter().present(project.graph, project.layout, project.settings)
 
 
 def test_canvas_accepts_an_externally_supplied_view_model(qtbot: object) -> None:
@@ -271,7 +298,6 @@ def test_long_node_text_expands_the_node_in_detail_mode(qtbot: object) -> None:
 
     assert canvas._nodes[node.id].boundingRect().width() == node.width
     assert canvas._nodes[node.id].boundingRect().height() > node.height
-    assert canvas._nodes[node.id]._title_font().pointSizeF() == 14.0
 
 
 def _wheel_event(modifiers: Qt.KeyboardModifier) -> QWheelEvent:

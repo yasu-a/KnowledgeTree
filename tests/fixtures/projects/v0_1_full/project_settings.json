@@ -1,0 +1,9 @@
+{
+  "schema_version": 3,
+  "edge_types": [
+    {"id": "refines", "label": "refines", "color_token": "blue", "allowed_endpoints": [["question", "question"]]},
+    {"id": "contributes-to", "label": "contributesTo", "color_token": "teal", "allowed_endpoints": [["reference", "question"], ["memo", "question"]]},
+    {"id": "leads-to", "label": "leadsTo", "color_token": "purple", "allowed_endpoints": [["reference", "reference"]]}
+  ],
+  "node_colors": {"question": "blue", "memo": "slate", "reference": "emerald"}
+}

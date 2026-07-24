@@ -1,122 +1,118 @@
-"""プロジェクトフォルダ単位の永続化を検証する。"""
+"""世代スナップショット保存と0.1から1.0へのmigrationを検証する。"""
 
-from dataclasses import replace
-from pathlib import Path
 import json
+import shutil
+from pathlib import Path
 
 import pytest
 
-from knowledge_tree.color_palette import ColorToken
-from knowledge_tree.demo_graph_editor import ChildCombination, DemoGraphEditor
+from knowledge_tree.domain_graph import MemoNode, QuestionNode, ReferenceNode
+from knowledge_tree.graph_layout import GraphLayout, NodeLayout
+from knowledge_tree.application_version import APPLICATION_VERSION
+from knowledge_tree.project_content import ProjectContent
 from knowledge_tree.project_storage import ProjectSnapshot, ProjectStorage
-from knowledge_tree.node_kind import NodeKind
-from knowledge_tree.reference_catalog import ReferenceKind, ReferenceLink
-from knowledge_tree.project_format_version import CURRENT_PROJECT_FORMAT_VERSION
 
 
-def test_creating_a_project_writes_json_files_and_a_cp932_literature_csv(tmp_path: Path) -> None:
-    """新規プロジェクトはデモデータ、設定JSON、Excel互換CSVを含むフォルダを作る。"""
+FIXTURE_DIRECTORY = Path(__file__).parent / "fixtures" / "projects" / "v0_1_full"
+
+
+def test_creating_a_project_writes_one_complete_active_snapshot(tmp_path: Path) -> None:
+    """新規プロジェクトは一世代へ意味論・レイアウト・設定をまとめて保存する。"""
     storage = ProjectStorage(tmp_path / "userdata")
-
     snapshot = storage.create_project("量子研究")
-
     project_directory = tmp_path / "userdata" / "projects" / "量子研究"
+    manifest = json.loads((project_directory / "project.json").read_text(encoding="utf-8"))
+    generation = project_directory / "snapshots" / manifest["active_snapshot"]
+
     assert len(snapshot.graph.nodes) >= 1
-    assert (project_directory / "project_settings.json").exists()
-    assert (project_directory / "graph.json").exists()
-    assert json.loads((project_directory / "project.json").read_text(encoding="utf-8")) == {"format_version": {"major": 0, "minor": 1}}
+    assert manifest["version"] == {"major": 1, "minor": 0}
+    assert all((generation / name).is_file() for name in ("graph.json", "layout.json", "project_settings.json"))
     assert (project_directory / "references" / "papers.csv").read_text(encoding="cp932").startswith("id,title,authors")
 
 
-def test_saving_a_project_does_not_duplicate_the_initial_reference(tmp_path: Path) -> None:
-    """通常保存でデモ用の初期文献を重複追加しない。"""
+def test_graph_json_contains_only_kind_specific_semantic_fields(tmp_path: Path) -> None:
+    """質問へ文献参照や位置を混在させず、UI情報はlayout.jsonへ分離する。"""
     storage = ProjectStorage(tmp_path / "userdata")
-    snapshot = storage.create_project("文献重複")
+    storage.create_project("分離")
+    project_directory = tmp_path / "userdata" / "projects" / "分離"
+    manifest = json.loads((project_directory / "project.json").read_text(encoding="utf-8"))
+    generation = project_directory / "snapshots" / manifest["active_snapshot"]
+    graph_data = json.loads((generation / "graph.json").read_text(encoding="utf-8"))
+    layout_data = json.loads((generation / "layout.json").read_text(encoding="utf-8"))
+    question = next(node for node in graph_data["nodes"] if node["kind"] == "question")
+    reference = next(node for node in graph_data["nodes"] if node["kind"] == "reference")
 
-    storage.save_project("文献重複", snapshot)
+    assert "position_x" not in question and "style_key" not in question and "reference_link" not in question
+    assert set(reference) == {"id", "kind", "reference_link"}
+    assert {item["node_id"] for item in layout_data["nodes"]} == {item["id"] for item in graph_data["nodes"]}
 
-    assert len(storage.reference_catalog("文献重複").papers()) == 1
 
-
-def test_graph_storage_preserves_a_reference_link_with_kind_and_id(tmp_path: Path) -> None:
-    """グラフJSONは文献IDだけでなく、文献種別もReferenceLinkとして保持する。"""
+def test_save_switches_manifest_only_after_writing_a_complete_new_generation(tmp_path: Path) -> None:
+    """不完全な孤立世代があってもmanifestが指す世代だけを読み込む。"""
     storage = ProjectStorage(tmp_path / "userdata")
-    storage.create_project("文献リンク")
+    created = storage.create_project("世代")
+    project_directory = tmp_path / "userdata" / "projects" / "世代"
+    manifest_before = json.loads((project_directory / "project.json").read_text(encoding="utf-8"))
+    (project_directory / "snapshots" / "incomplete").mkdir()
+    (project_directory / "snapshots" / "incomplete" / "graph.json").write_text("{}", encoding="utf-8")
 
-    loaded = storage.load_project("文献リンク")
-    evidence = next(node for node in loaded.graph.nodes if node.id == "evidence")
+    storage.save_project("世代", created)
+    manifest_after = json.loads((project_directory / "project.json").read_text(encoding="utf-8"))
 
-    assert evidence.reference_link == ReferenceLink(ReferenceKind.PAPER, "paper-001")
+    assert manifest_after["active_snapshot"] != manifest_before["active_snapshot"]
+    assert storage.load_project("世代").graph.nodes
 
 
-def test_saving_and_loading_a_project_preserves_graph_layout_and_edge_types(tmp_path: Path) -> None:
-    """プロジェクトJSONの往復でノード位置とエッジ種類設定を保持する。"""
+def test_save_keeps_the_active_and_immediately_previous_snapshots_only(tmp_path: Path) -> None:
+    """世代保存は直前のバックアップを残し、古い世代と不完全世代を整理する。"""
     storage = ProjectStorage(tmp_path / "userdata")
-    snapshot = storage.create_project("保存確認")
-    moved_node = replace(snapshot.graph.nodes[0], position_x=777.0, position_y=333.0)
-    modified_graph = replace(snapshot.graph, nodes=(moved_node, *snapshot.graph.nodes[1:]))
-    snapshot.settings.update_edge_color("refines", ColorToken.INDIGO)
+    snapshot = storage.create_project("整理")
+    project_directory = tmp_path / "userdata" / "projects" / "整理"
+    snapshots_directory = project_directory / "snapshots"
+    first_generation_id = json.loads((project_directory / "project.json").read_text(encoding="utf-8"))["active_snapshot"]
+    (snapshots_directory / "incomplete").mkdir()
 
-    storage.save_project("保存確認", ProjectSnapshot(modified_graph, snapshot.settings))
-    loaded = storage.load_project("保存確認")
+    storage.save_project("整理", snapshot)
+    second_generation_id = json.loads((project_directory / "project.json").read_text(encoding="utf-8"))["active_snapshot"]
+    storage.save_project("整理", snapshot)
+    third_generation_id = json.loads((project_directory / "project.json").read_text(encoding="utf-8"))["active_snapshot"]
 
-    assert (loaded.graph.nodes[0].position_x, loaded.graph.nodes[0].position_y) == (777.0, 333.0)
-    assert next(item for item in loaded.settings.edge_types() if item.id == "refines").color_token == ColorToken.INDIGO
-    settings_json = json.loads((tmp_path / "userdata" / "projects" / "保存確認" / "project_settings.json").read_text(encoding="utf-8"))
-    assert settings_json["edge_types"][0]["color_token"] == "indigo"
-    assert settings_json["edge_types"][0]["allowed_endpoints"] == [[NodeKind.QUESTION.value, NodeKind.QUESTION.value]]
-    assert "color_hex" not in settings_json["edge_types"][0]
+    assert {path.name for path in snapshots_directory.iterdir() if path.is_dir()} == {second_generation_id, third_generation_id}
+    assert first_generation_id not in {path.name for path in snapshots_directory.iterdir() if path.is_dir()}
+    assert not (snapshots_directory / "incomplete").exists()
 
 
-def test_saving_and_loading_a_project_preserves_custom_edge_type_endpoints(tmp_path: Path) -> None:
-    """追加した関係種類と接続可能なノード種別の設定はJSON往復後も保持する。"""
+def test_storage_rejects_layout_that_does_not_match_semantic_graph(tmp_path: Path) -> None:
+    """同じ保存世代内でgraphとlayoutのID対応が崩れる保存を拒否する。"""
     storage = ProjectStorage(tmp_path / "userdata")
-    snapshot = storage.create_project("接続規則")
-    edge_type = snapshot.settings.add_edge_type()
-    snapshot.settings.update_edge_type(
-        edge_type.id,
-        "commentsOn",
-        ColorToken.ROSE,
-        ((NodeKind.QUESTION, NodeKind.MEMO),),
-    )
+    snapshot = storage.create_project("不整合")
+    invalid_content = ProjectContent(snapshot.graph, GraphLayout((), snapshot.layout.edge_layouts), snapshot.settings)
 
-    storage.save_project("接続規則", snapshot)
-    loaded = storage.load_project("接続規則")
+    with pytest.raises(ValueError, match="一致"):
+        storage.save_project("不整合", ProjectSnapshot(invalid_content))
 
-    assert loaded.settings.edge_types()[-1].label == "commentsOn"
-    assert loaded.settings.edge_types()[-1].allowed_endpoints == ((NodeKind.QUESTION, NodeKind.MEMO),)
+
+def test_loading_fixture_migrates_a_full_v0_1_project_to_v1_0(tmp_path: Path) -> None:
+    """実際の0.1形式フィクスチャを一時ディレクトリで1.0へ移行して検証する。"""
+    project_directory = tmp_path / "userdata" / "projects" / "旧プロジェクト"
+    shutil.copytree(FIXTURE_DIRECTORY, project_directory)
+    storage = ProjectStorage(tmp_path / "userdata")
+
+    migrated = storage.load_project("旧プロジェクト")
+    manifest = json.loads((project_directory / "project.json").read_text(encoding="utf-8"))
+    generation = project_directory / "snapshots" / manifest["active_snapshot"]
+
+    assert manifest["version"] == {"major": APPLICATION_VERSION.major, "minor": APPLICATION_VERSION.minor}
+    assert isinstance(next(node for node in migrated.graph.nodes if node.id == "q-and"), QuestionNode)
+    assert isinstance(next(node for node in migrated.graph.nodes if node.id == "memo"), MemoNode)
+    assert isinstance(next(node for node in migrated.graph.nodes if node.id == "paper"), ReferenceNode)
+    assert migrated.layout.node_layout("q-and").position_x == 10.0
+    assert migrated.layout.edge_layout("e-refines").label_anchor == 0.3
+    assert json.loads((generation / "graph.json").read_text(encoding="utf-8"))["schema_version"] == 1
+    assert (project_directory / "references" / "papers.csv").read_text(encoding="cp932").startswith("id,title")
 
 
 def test_project_storage_rejects_unsafe_project_names(tmp_path: Path) -> None:
-    """親ディレクトリへ脱出できる名前でプロジェクトを作成できない。"""
-    storage = ProjectStorage(tmp_path / "userdata")
-
+    """親ディレクトリへ脱出できるプロジェクト名は拒否する。"""
     with pytest.raises(ValueError):
-        storage.create_project("../outside")
-
-
-def test_loading_a_project_preserves_or_and_uses_new_unique_ids(tmp_path: Path) -> None:
-    """保存済みのAND/ORと動的ID採番は、再読込後も維持する。"""
-    storage = ProjectStorage(tmp_path / "userdata")
-    snapshot = storage.create_project("再読込確認")
-    editor = DemoGraphEditor(snapshot.graph)
-    first_node_id = snapshot.graph.nodes[0].id
-    editor.update_question_node(first_node_id, "質問", "本文", ChildCombination.ANY)
-    editor.create_question_node_at(100.0, 100.0)
-    storage.save_project("再読込確認", ProjectSnapshot(editor.graph(), snapshot.settings))
-
-    reloaded_editor = DemoGraphEditor(storage.load_project("再読込確認").graph)
-    next_node_id = reloaded_editor.create_question_node_at(200.0, 200.0)
-
-    assert reloaded_editor.child_combination(first_node_id) == ChildCombination.ANY
-    assert next_node_id not in {node.id for node in editor.graph().nodes}
-
-
-def test_deleting_a_project_removes_only_its_folder(tmp_path: Path) -> None:
-    """プロジェクト削除は指定プロジェクトのフォルダだけを削除する。"""
-    storage = ProjectStorage(tmp_path / "userdata")
-    storage.create_project("削除対象")
-    storage.create_project("残す")
-    storage.delete_project("削除対象")
-
-    assert storage.project_names() == ("残す",)
+        ProjectStorage(tmp_path / "userdata").create_project("../outside")

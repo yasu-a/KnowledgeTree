@@ -3,8 +3,9 @@
 import math
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPainterPathStroker, QPen, QPolygonF
+from PyQt6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPainterPathStroker, QPen
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsObject, QGraphicsPathItem, QGraphicsSceneContextMenuEvent, QGraphicsSceneHoverEvent, QGraphicsSceneMouseEvent, QStyleOptionGraphicsItem, QWidget
+from PyQt6 import sip
 
 from knowledge_tree.graph.styles import EdgeStyle
 from knowledge_tree.viewmodels.graph_viewmodels import GraphEdgeViewModel
@@ -108,9 +109,13 @@ class EdgeItem(QGraphicsObject):
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget | None = None) -> None:
         """線と、有向の場合は終端矢印を描画する。"""
         del option, widget
-        color = self._style.selection_line if self.isSelected() else self._style.line
-        width = 7.5 if self.isSelected() else 1.8
-        if self._hovered and not self.isSelected():
+        # Scene再構築後に届いた保留paintでは、C++側が既に破棄済みの場合がある。
+        if sip.isdeleted(self):
+            return
+        selected = self.isSelected()
+        color = self._style.selection_line if selected else self._style.line
+        width = 7.5 if selected else 1.8
+        if self._hovered and not selected:
             width = 6.25
         painter.setPen(QPen(color, width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -127,7 +132,12 @@ class EdgeItem(QGraphicsObject):
         right = QPointF(end.x() - length * math.cos(angle + 0.45), end.y() - length * math.sin(angle + 0.45))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(color)
-        painter.drawPolygon(QPolygonF((end, left, right)))
+        # QPolygonFのPythonシーケンス変換を経由せず、三角形を直接Pathとして描く。
+        arrow_path = QPainterPath(end)
+        arrow_path.lineTo(left)
+        arrow_path.lineTo(right)
+        arrow_path.closeSubpath()
+        painter.drawPath(arrow_path)
 
     @staticmethod
     def _connection_port(rectangle: QRectF, toward: QPointF) -> tuple[QPointF, QPointF]:
@@ -226,6 +236,9 @@ class EdgeLabelItem(QGraphicsObject):
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget | None = None) -> None:
         """選択状態に応じた枠線とラベル文字列を描画する。"""
         del option, widget
+        # Scene再構築によりC++側が消えたラベルへの保留paintを無視する。
+        if sip.isdeleted(self):
+            return
         rectangle = self.boundingRect()
         border = self._style.selection_line if self.isSelected() else self._style.line
         painter.setPen(QPen(border, 1.0))
