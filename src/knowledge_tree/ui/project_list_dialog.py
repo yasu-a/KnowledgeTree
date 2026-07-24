@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QDialog, QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout, QWidget
 
 
 @dataclass(frozen=True)
@@ -43,7 +43,7 @@ class ProjectListDialog(QDialog):
         return self._action
 
     def _build_layout(self) -> None:
-        """プロジェクト一覧、操作ボタン、キャンセルボタンを配置する。"""
+        """プロジェクト一覧と操作ボタンを配置する。"""
         button_layout = QHBoxLayout()
         button_layout.addWidget(self.open_button)
         button_layout.addWidget(self.create_button)
@@ -53,9 +53,6 @@ class ProjectListDialog(QDialog):
         layout.addWidget(self.project_list)
         layout.addLayout(button_layout)
         layout.addWidget(self.global_settings_button, alignment=Qt.AlignmentFlag.AlignLeft)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel, parent=self)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
 
     def _populate_projects(self, project_names: tuple[str, ...]) -> None:
         """名前一覧からリスト項目を作り、先頭を選択する。"""

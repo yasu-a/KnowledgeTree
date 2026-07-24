@@ -3,7 +3,7 @@
 from pathlib import Path
 import json
 
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtWidgets import QApplication, QDialogButtonBox, QMessageBox
 
 from knowledge_tree.application_navigator import ApplicationNavigator
 from knowledge_tree.global_settings import GlobalSettings, GlobalSettingsStore
@@ -74,6 +74,23 @@ def test_project_list_disables_deletion_for_an_open_project(qtbot: object) -> No
     assert dialog.delete_button.isEnabled() is False
     dialog.project_list.setCurrentRow(1)
     assert dialog.delete_button.isEnabled() is True
+    assert dialog.findChildren(QDialogButtonBox) == []
+
+
+def test_navigator_deletes_a_closed_project_after_explicit_confirmation(monkeypatch: object, tmp_path: Path) -> None:
+    """プロジェクト削除はDeleteを明示的に選んだ場合だけ実行できる。"""
+    navigator, storage, _ = _navigator(tmp_path)
+    storage.create_project("削除対象")
+
+    def accept_deletion(dialog: QMessageBox) -> int:
+        """テスト用にDeleteボタンを選択して確認ダイアログを閉じる。"""
+        next(button for button in dialog.buttons() if button.text() == "Delete").click()
+        return 0
+
+    monkeypatch.setattr(QMessageBox, "exec", accept_deletion)
+    navigator._delete_project("削除対象", None)
+
+    assert storage.project_names() == ()
 
 
 def test_global_settings_dialog_returns_the_selected_startup_behavior(qtbot: object) -> None:

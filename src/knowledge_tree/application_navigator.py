@@ -126,14 +126,12 @@ class ApplicationNavigator:
         if project_name in self._windows:
             QMessageBox.information(parent, "プロジェクトを削除できません", "開いているプロジェクトは削除できません。先に閉じてください。")
             return
-        answer = QMessageBox.question(
-            parent,
-            "プロジェクトを削除",
-            f"プロジェクト「{project_name}」を完全に削除します。\nこの操作は元に戻せません。",
-            QMessageBox.StandardButton.Delete | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
-        )
-        if answer != QMessageBox.StandardButton.Delete:
+        confirmation = QMessageBox(QMessageBox.Icon.Warning, "プロジェクトを削除", f"プロジェクト「{project_name}」を完全に削除します。\nこの操作は元に戻せません。", parent=parent)
+        delete_button = confirmation.addButton("Delete", QMessageBox.ButtonRole.DestructiveRole)
+        cancel_button = confirmation.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        confirmation.setDefaultButton(cancel_button)
+        confirmation.exec()
+        if confirmation.clickedButton() is not delete_button:
             return
         try:
             self._project_storage.delete_project(project_name)

@@ -56,7 +56,7 @@ class MainWindow(QMainWindow):
         """メニューとツールバーで共用するアクションを作成する。"""
         self.save_project_action = QAction("保存", self)
         self.save_project_action.setShortcut(QKeySequence.StandardKey.Save)
-        self.save_project_action.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.save_project_action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
         self.save_project_action.setEnabled(self._project_session.can_save)
         self.save_project_action.triggered.connect(self._save_project)
 

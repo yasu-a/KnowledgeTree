@@ -245,7 +245,7 @@ def test_main_window_saves_dirty_changes_only_when_requested(qtbot: object, tmp_
     window._show_node_move(isolated_id, QPointF(80.0, 500.0), QPointF(620.0, 430.0))
 
     assert window.windowTitle().startswith("*KnowledgeTree")
-    assert window.save_project_action.shortcutContext() == Qt.ShortcutContext.ApplicationShortcut
+    assert window.save_project_action.shortcutContext() == Qt.ShortcutContext.WindowShortcut
     loaded = storage.load_project("手動保存")
     isolated_layout = loaded.layout.node_layout(isolated_id)
     assert (isolated_layout.position_x, isolated_layout.position_y) != (620.0, 430.0)
