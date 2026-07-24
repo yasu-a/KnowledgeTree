@@ -3,8 +3,8 @@
 from pathlib import Path
 
 from knowledge_tree.ui.main_window import MainWindow
-from PyQt6.QtCore import QPointF
-from PyQt6.QtWidgets import QLabel
+from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtWidgets import QLabel, QMessageBox
 from knowledge_tree.project_session import ProjectSession
 from knowledge_tree.project_storage import ProjectStorage
 from knowledge_tree.reference_catalog import Book, ReferenceKind, ReferenceLink
@@ -234,19 +234,46 @@ def test_contribution_edge_cannot_be_split_by_inserting_a_question(qtbot: object
     assert len(graph_after.edges) == len(graph_before.edges)
 
 
-def test_main_window_autosaves_changes_when_opened_from_a_project(qtbot: object, tmp_path: Path) -> None:
-    """プロジェクトとして開いたWindowの編集は、明示保存なしで次回読込へ反映される。"""
+def test_main_window_saves_dirty_changes_only_when_requested(qtbot: object, tmp_path: Path) -> None:
+    """プロジェクトの変更はCtrl+S相当の明示保存時だけ永続化される。"""
     storage = ProjectStorage(tmp_path / "userdata")
-    storage.create_project("自動保存")
-    window = MainWindow(ProjectSession.open(storage, "自動保存"))
+    storage.create_project("手動保存")
+    window = MainWindow(ProjectSession.open(storage, "手動保存"))
     qtbot.addWidget(window)
 
     isolated_id = _node_id(window, "未整理のメモ")
     window._show_node_move(isolated_id, QPointF(80.0, 500.0), QPointF(620.0, 430.0))
 
-    loaded = storage.load_project("自動保存")
+    assert window.windowTitle().startswith("*KnowledgeTree")
+    assert window.save_project_action.shortcutContext() == Qt.ShortcutContext.ApplicationShortcut
+    loaded = storage.load_project("手動保存")
+    isolated_layout = loaded.layout.node_layout(isolated_id)
+    assert (isolated_layout.position_x, isolated_layout.position_y) != (620.0, 430.0)
+
+    window.save_project_action.trigger()
+
+    loaded = storage.load_project("手動保存")
     isolated_layout = loaded.layout.node_layout(isolated_id)
     assert (isolated_layout.position_x, isolated_layout.position_y) == (620.0, 430.0)
+    assert window.windowTitle().startswith("KnowledgeTree")
+
+
+def test_main_window_confirms_discard_when_closing_dirty_project(qtbot: object, monkeypatch: object, tmp_path: Path) -> None:
+    """未保存のプロジェクトはDiscardを選んだ場合だけ閉じられる。"""
+    storage = ProjectStorage(tmp_path / "userdata")
+    storage.create_project("破棄確認")
+    window = MainWindow(ProjectSession.open(storage, "破棄確認"))
+    qtbot.addWidget(window)
+    window.show()
+    window._show_node_move(_node_id(window, "未整理のメモ"), QPointF(80.0, 500.0), QPointF(620.0, 430.0))
+
+    monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.StandardButton.Cancel)
+    window.close()
+    assert window.isVisible() is True
+
+    monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.StandardButton.Discard)
+    window.close()
+    assert window.isVisible() is False
 
 
 def test_reference_node_is_created_unselected_and_can_select_a_catalog_record(qtbot: object, tmp_path: Path) -> None:
@@ -278,6 +305,7 @@ def test_reference_node_is_created_unselected_and_can_select_a_catalog_record(qt
     window.canvas.select_node(node_id)
 
     assert window.inspector.reference_combo.currentData() == ReferenceLink(ReferenceKind.BOOK, record.id)
+    window._save_project()
 
 
 def test_reference_node_keeps_a_link_when_its_catalog_record_is_deleted(qtbot: object, tmp_path: Path) -> None:
@@ -304,3 +332,4 @@ def test_reference_node_keeps_a_link_when_its_catalog_record_is_deleted(qtbot: o
     assert updated.badge_text == "Book"
     assert window.inspector.reference_combo.currentData() == link
     assert "削除された文献" in window.inspector.reference_combo.currentText()
+    window._save_project()

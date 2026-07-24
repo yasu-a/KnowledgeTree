@@ -34,6 +34,11 @@ class ProjectSession:
         return self._project_name
 
     @property
+    def can_save(self) -> bool:
+        """このセッションがプロジェクトファイルへ保存可能かを返す。"""
+        return self._project_storage is not None
+
+    @property
     def project_settings(self) -> ProjectSettings:
         """このプロジェクトの設定を返す。"""
         return self._project_settings

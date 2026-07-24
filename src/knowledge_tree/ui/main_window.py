@@ -2,7 +2,7 @@
 
 from PyQt6.QtCore import QEvent, QPoint, QPointF, QSignalBlocker, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QCloseEvent, QColor, QIcon, QKeySequence, QPainter, QPixmap
-from PyQt6.QtWidgets import QDialogButtonBox, QDockWidget, QMainWindow, QMenu, QStatusBar, QToolBar, QVBoxLayout
+from PyQt6.QtWidgets import QDialogButtonBox, QDockWidget, QMainWindow, QMenu, QMessageBox, QStatusBar, QToolBar, QVBoxLayout
 
 from knowledge_tree.color_palette import ColorPalette
 from knowledge_tree.application_version import APPLICATION_VERSION
@@ -33,7 +33,9 @@ class MainWindow(QMainWindow):
         """指定プロジェクトのCanvas、メニュー、編集状態を初期化する。"""
         super().__init__()
         self._project_session = project_session or ProjectSession.demo()
-        self.setWindowTitle(f"KnowledgeTree {APPLICATION_VERSION} - {self._project_session.project_name}")
+        self._base_window_title = f"KnowledgeTree {APPLICATION_VERSION} - {self._project_session.project_name}"
+        self._is_dirty = False
+        self._update_window_title()
         self.resize(1200, 760)
         self.canvas = GraphCanvasWidget(self)
         self.setCentralWidget(self.canvas)
@@ -52,6 +54,12 @@ class MainWindow(QMainWindow):
 
     def _create_actions(self) -> None:
         """メニューとツールバーで共用するアクションを作成する。"""
+        self.save_project_action = QAction("保存", self)
+        self.save_project_action.setShortcut(QKeySequence.StandardKey.Save)
+        self.save_project_action.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.save_project_action.setEnabled(self._project_session.can_save)
+        self.save_project_action.triggered.connect(self._save_project)
+
         self.fit_all_action = QAction("全体を表示", self)
         self.fit_all_action.setShortcut("F")
         self.fit_all_action.triggered.connect(self.canvas.fit_all)
@@ -84,6 +92,8 @@ class MainWindow(QMainWindow):
     def _create_menu_bar(self) -> None:
         """ファイル・表示メニューを構築する。"""
         file_menu = self.menuBar().addMenu("ファイル")
+        file_menu.addAction(self.save_project_action)
+        file_menu.addSeparator()
         file_menu.addAction(self.open_project_action)
         file_menu.addAction(self.global_settings_action)
         file_menu.addAction(self.reference_catalog_action)
@@ -210,7 +220,6 @@ class MainWindow(QMainWindow):
         self._register_edge_type_styles()
         self.inspector.reload_edge_types()
         self._refresh_demo_graph()
-        self._persist_project()
 
     def _can_apply_project_settings(self, edited_settings: ProjectSettings) -> bool:
         """使用中の関係ラベルを削除しない設定変更かを検証する。"""
@@ -370,7 +379,7 @@ class MainWindow(QMainWindow):
         """確定したノード位置を外部デモ状態へ反映し、結果を表示する。"""
         self._demo_graph_editor.update_node_position(node_id, new_position.x(), new_position.y())
         self.canvas.update_node(self._demo_graph_editor.node_view_model(node_id))
-        self._persist_project()
+        self._mark_project_dirty()
         self.statusBar().showMessage(
             f"ノードを移動: ({old_position.x():.0f}, {old_position.y():.0f}) → ({new_position.x():.0f}, {new_position.y():.0f})"
         )
@@ -378,7 +387,7 @@ class MainWindow(QMainWindow):
     def _show_label_move(self, edge_id: str, old_offset: QPointF, new_offset: QPointF) -> None:
         """確定したラベル位置を外部デモ状態へ反映し、結果を表示する。"""
         self._demo_graph_editor.update_edge_label_offset(edge_id, new_offset.x(), new_offset.y())
-        self._persist_project()
+        self._mark_project_dirty()
         self.statusBar().showMessage(
             f"エッジラベルを移動: ({old_offset.x():.0f}, {old_offset.y():.0f}) → ({new_offset.x():.0f}, {new_offset.y():.0f})"
         )
@@ -437,7 +446,7 @@ class MainWindow(QMainWindow):
             return
         self.canvas.update_edge(self._demo_graph_editor.edge_view_model(edge_id))
         self.canvas.select_edge(edge_id)
-        self._persist_project()
+        self._mark_project_dirty()
         self.statusBar().showMessage("新しいエッジを追加しました。")
 
     def _create_demo_node_from_connection(self, source_node_id: str, scene_position: QPointF) -> None:
@@ -473,7 +482,7 @@ class MainWindow(QMainWindow):
         node_id = self._demo_graph_editor.create_question_node_at(scene_position.x(), scene_position.y())
         self.canvas.update_node(self._demo_graph_editor.node_view_model(node_id))
         self.canvas.select_node(node_id)
-        self._persist_project()
+        self._mark_project_dirty()
         self.statusBar().showMessage("質問ノードを追加しました。")
 
     def _create_memo_node(self, scene_position: QPointF) -> None:
@@ -481,7 +490,7 @@ class MainWindow(QMainWindow):
         node_id = self._demo_graph_editor.create_memo_node_at(scene_position.x(), scene_position.y())
         self.canvas.update_node(self._demo_graph_editor.node_view_model(node_id))
         self.canvas.select_node(node_id)
-        self._persist_project()
+        self._mark_project_dirty()
         self.statusBar().showMessage("メモノードを追加しました。")
 
     def _create_reference_node(self, scene_position: QPointF) -> None:
@@ -489,7 +498,7 @@ class MainWindow(QMainWindow):
         node_id = self._demo_graph_editor.create_reference_node_at(scene_position.x(), scene_position.y())
         self.canvas.update_node(self._demo_graph_editor.node_view_model(node_id))
         self.canvas.select_node(node_id)
-        self._persist_project()
+        self._mark_project_dirty()
         self.statusBar().showMessage("文献ノードを追加しました。")
 
     def _disconnect_demo_edge(self, edge_id: str) -> None:
@@ -497,7 +506,7 @@ class MainWindow(QMainWindow):
         if self._demo_graph_editor.remove_edges([edge_id]) == 0:
             return
         self.canvas.remove_edge(edge_id)
-        self._persist_project()
+        self._mark_project_dirty()
         self.statusBar().showMessage("エッジを切断しました。")
 
     def _reconnect_demo_edge(self, edge_id: str, source_node_id: str, target_node_id: str) -> None:
@@ -511,13 +520,13 @@ class MainWindow(QMainWindow):
             return
         self.canvas.update_edge(self._demo_graph_editor.edge_view_model(edge_id))
         self.canvas.select_edge(edge_id)
-        self._persist_project()
+        self._mark_project_dirty()
         self.statusBar().showMessage("エッジを付け替えました。")
 
     def _refresh_demo_graph(self) -> None:
         """外部デモ状態から再構築したViewModelをCanvasへ反映する。"""
         self.canvas.set_graph(self._demo_graph_editor.graph())
-        self._persist_project()
+        self._mark_project_dirty()
 
     def _update_question_from_inspector(
         self,
@@ -532,7 +541,7 @@ class MainWindow(QMainWindow):
             return
         self._demo_graph_editor.update_question_node(node_id, title, body, combination)
         self.canvas.update_node(self._demo_graph_editor.node_view_model(node_id))
-        self._persist_project()
+        self._mark_project_dirty()
 
     def _update_edge_type_from_inspector(self, edge_id: str, edge_type_id: str | None) -> None:
         """インスペクタの種類選択を、エッジのラベルと色へ即時反映する。"""
@@ -546,7 +555,7 @@ class MainWindow(QMainWindow):
             return
         self._demo_graph_editor.update_edge_type(edge_id, edge_type.label, self._edge_type_style_key(edge_type))
         self.canvas.update_edge(self._demo_graph_editor.edge_view_model(edge_id))
-        self._persist_project()
+        self._mark_project_dirty()
 
     def _update_memo_from_inspector(self, node_id: str, title: str, body: str) -> None:
         """インスペクタのメモ編集を外部状態とCanvasへ即時反映する。"""
@@ -555,14 +564,14 @@ class MainWindow(QMainWindow):
             return
         self._demo_graph_editor.update_memo_node(node_id, title, body)
         self.canvas.update_node(self._demo_graph_editor.node_view_model(node_id))
-        self._persist_project()
+        self._mark_project_dirty()
 
     def _update_reference_from_inspector(self, node_id: str, reference_link: ReferenceLink | None) -> None:
         """インスペクタで選んだ文献をノードへ関連付け、表示内容をカタログから同期する。"""
         if reference_link is None:
             self._demo_graph_editor.update_reference_node(node_id, None, "文献を選択してください", None)
             self.canvas.update_node(self._demo_graph_editor.node_view_model(node_id))
-            self._persist_project()
+            self._mark_project_dirty()
             return
         record = self._reference_for_link(reference_link)
         if record is None:
@@ -570,7 +579,7 @@ class MainWindow(QMainWindow):
         else:
             self._demo_graph_editor.update_reference_node(node_id, reference_link, record.title, self._reference_secondary_text(record))
         self.canvas.update_node(self._demo_graph_editor.node_view_model(node_id))
-        self._persist_project()
+        self._mark_project_dirty()
 
     def _show_reference_catalog_for_node(self, node_id: str) -> None:
         """文献ノードが現在参照する文献を選択した状態で管理ダイアログを開く。"""
@@ -588,7 +597,7 @@ class MainWindow(QMainWindow):
             else:
                 self._demo_graph_editor.update_reference_node(node.id, reference_link, record.title, self._reference_secondary_text(record))
             self.canvas.update_node(self._demo_graph_editor.node_view_model(node.id))
-        self._persist_project()
+        self._mark_project_dirty()
 
     def _show_missing_reference_on_node(self, node_id: str, reference_link: ReferenceLink) -> None:
         """削除済み文献へのリンクを保持したまま、ノードを欠損状態として表示する。"""
@@ -623,9 +632,25 @@ class MainWindow(QMainWindow):
             parts = ["Website", record.site_name, record.published_at, record.accessed_at, record.url, record.notes]
         return " / ".join(part for part in parts if part) or None
 
-    def _persist_project(self) -> None:
-        """現在のプロジェクトセッションへ、編集内容の保存を依頼する。"""
+    def _mark_project_dirty(self) -> None:
+        """未保存変更を記録し、保存可能なプロジェクトのタイトルを更新する。"""
+        if not self._project_session.can_save or self._is_dirty:
+            return
+        self._is_dirty = True
+        self._update_window_title()
+
+    def _save_project(self) -> None:
+        """未保存のプロジェクト内容を明示保存し、dirty表示を解除する。"""
+        if not self._is_dirty:
+            return
         self._project_session.save()
+        self._is_dirty = False
+        self._update_window_title()
+        self.statusBar().showMessage("プロジェクトを保存しました。")
+
+    def _update_window_title(self) -> None:
+        """dirty状態に応じて、ウィンドウタイトルの未保存マークを更新する。"""
+        self.setWindowTitle(f"{'*' if self._is_dirty else ''}{self._base_window_title}")
 
     def _graph_mutation_service(self) -> GraphMutationService:
         """現在の表示状態を、変更規則の判定だけに使うドメイングラフへ変換する。"""
@@ -662,7 +687,17 @@ class MainWindow(QMainWindow):
             self.project_activated.emit(self._project_session.project_name)
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        """閉じる直前に保存し、Navigatorへセッション終了を通知する。"""
-        self._project_session.save()
+        """未保存変更の破棄を確認してから、Navigatorへセッション終了を通知する。"""
+        if self._is_dirty:
+            answer = QMessageBox.question(
+                self,
+                "未保存の変更",
+                "未保存の変更があります。変更を破棄して閉じますか？",
+                QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if answer != QMessageBox.StandardButton.Discard:
+                event.ignore()
+                return
         event.accept()
         self.project_closed.emit(self._project_session.project_name)
