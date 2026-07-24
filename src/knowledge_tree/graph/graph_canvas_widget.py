@@ -64,6 +64,8 @@ class GraphCanvasWidget(QGraphicsView):
         self._is_rebuilding_graph = False
         self._is_panning = False
         self._pan_start = QPoint()
+        self._selected_node_drag_start_scene_position: QPointF | None = None
+        self._selected_node_drag_start_positions: dict[str, QPointF] | None = None
 
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setRenderHint(QPainter.RenderHint.TextAntialiasing)
@@ -237,8 +239,19 @@ class GraphCanvasWidget(QGraphicsView):
             return
         scene_position = self.mapToScene(event.position().toPoint())
         if event.button() == Qt.MouseButton.LeftButton:
-            # ノード辺は新規接続専用とし、既存エッジの端とは操作を分離する。
             node_id = self._node_id_at(scene_position)
+            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier and node_id is not None and self.selected_node_ids():
+                # Shiftは選択済みノード群へ追加する操作だけに使い、エッジの複数選択は許可しない。
+                self._add_node_to_selection(node_id)
+                self._start_selected_node_drag(scene_position)
+                event.accept()
+                return
+            if node_id is not None and self._nodes[node_id].isSelected() and len(self.selected_node_ids()) > 1:
+                # 選択済みノードを通常ドラッグした場合も、選択中の全ノードを同じ差分だけ移動する。
+                self._start_selected_node_drag(scene_position)
+                event.accept()
+                return
+            # ノード辺は新規接続専用とし、既存エッジの端とは操作を分離する。
             if node_id is not None and self._nodes[node_id].is_connection_zone_at(scene_position):
                 self._start_new_connection_drag(node_id, scene_position)
                 event.accept()
@@ -263,6 +276,10 @@ class GraphCanvasWidget(QGraphicsView):
             self._move_connection_drag(self.mapToScene(event.position().toPoint()))
             event.accept()
             return
+        if self._selected_node_drag_start_scene_position is not None and self._selected_node_drag_start_positions is not None:
+            self._move_selected_nodes(self.mapToScene(event.position().toPoint()))
+            event.accept()
+            return
         if self._is_panning:
             delta = event.position().toPoint() - self._pan_start
             self._pan_start = event.position().toPoint()
@@ -276,6 +293,10 @@ class GraphCanvasWidget(QGraphicsView):
         """パン状態を終了する。"""
         if self._edge_drag is not None and event.button() == Qt.MouseButton.LeftButton:
             self._finish_connection_drag(self.mapToScene(event.position().toPoint()))
+            event.accept()
+            return
+        if self._selected_node_drag_start_positions is not None and event.button() == Qt.MouseButton.LeftButton:
+            self._commit_selected_node_drag()
             event.accept()
             return
         if self._is_panning and event.button() == Qt.MouseButton.LeftButton:
@@ -367,6 +388,51 @@ class GraphCanvasWidget(QGraphicsView):
         """エッジを再描画してから、確定したノード位置を通知する。"""
         self._refresh_edges_for_node(node_id)
         self.node_move_committed.emit(node_id, old_position, new_position)
+
+    def _add_node_to_selection(self, node_id: str) -> None:
+        """エッジ選択を解除し、指定ノードを現在のノード選択へ加える。"""
+        for edge_id in self.selected_edge_ids():
+            edge_item = self._edges.get(edge_id)
+            if edge_item is not None:
+                edge_item.setSelected(False)
+            label_item = self._edge_labels.get(edge_id)
+            if label_item is not None:
+                label_item.setSelected(False)
+        self._nodes[node_id].setSelected(True)
+
+    def _start_selected_node_drag(self, scene_position: QPointF) -> None:
+        """選択ノード群をまとめて移動するための開始座標を記録する。"""
+        self._selected_node_drag_start_scene_position = QPointF(scene_position)
+        self._selected_node_drag_start_positions = {
+            node_id: QPointF(self._nodes[node_id].pos())
+            for node_id in self.selected_node_ids()
+        }
+
+    def _move_selected_nodes(self, scene_position: QPointF) -> None:
+        """開始位置からの差分だけ、選択中のノード群を移動する。"""
+        if self._selected_node_drag_start_scene_position is None or self._selected_node_drag_start_positions is None:
+            return
+        delta = scene_position - self._selected_node_drag_start_scene_position
+        for node_id, start_position in self._selected_node_drag_start_positions.items():
+            node_item = self._nodes.get(node_id)
+            if node_item is not None:
+                node_item.setPos(start_position + delta)
+
+    def _commit_selected_node_drag(self) -> None:
+        """移動済みの選択ノードごとに位置確定イベントを通知する。"""
+        start_positions = self._selected_node_drag_start_positions
+        self._selected_node_drag_start_scene_position = None
+        self._selected_node_drag_start_positions = None
+        if start_positions is None:
+            return
+        for node_id, old_position in start_positions.items():
+            node_item = self._nodes.get(node_id)
+            if node_item is None or node_item.pos() == old_position:
+                continue
+            new_position = QPointF(node_item.pos())
+            self._refresh_edges_for_node(node_id)
+            self.node_move_committed.emit(node_id, old_position, new_position)
+        self._update_scene_rect()
 
     def _refresh_edges_for_node(self, node_id: str) -> None:
         """指定ノードへ接続する全エッジの経路を再計算する。"""

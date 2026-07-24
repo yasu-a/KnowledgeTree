@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from knowledge_tree.ui.main_window import MainWindow
-from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtCore import QPoint, QPointF, Qt
 from PyQt6.QtWidgets import QLabel, QMessageBox
 from knowledge_tree.project_session import ProjectSession
 from knowledge_tree.project_storage import ProjectStorage
@@ -274,6 +274,42 @@ def test_main_window_confirms_discard_when_closing_dirty_project(qtbot: object, 
     monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.StandardButton.Discard)
     window.close()
     assert window.isVisible() is False
+
+
+def test_main_window_moves_multiple_selected_nodes_and_disables_the_inspector(qtbot: object, tmp_path: Path) -> None:
+    """複数選択したノードは一緒に移動し、インスペクタは単一選択の案内へ戻る。"""
+    storage = ProjectStorage(tmp_path / "userdata")
+    storage.create_project("複数選択")
+    window = MainWindow(ProjectSession.open(storage, "複数選択"))
+    qtbot.addWidget(window)
+    window.resize(1000, 700)
+    window.show()
+    window.canvas.fit_all()
+    goal_id = _node_id(window, "社会的・工学的な大きな目標")
+    operation_id = _node_id(window, "量子プロセッサを\n安定して運用するには？")
+    goal_center = window.canvas.mapFromScene(window.canvas._nodes[goal_id].sceneBoundingRect().center())
+    operation_center = window.canvas.mapFromScene(window.canvas._nodes[operation_id].sceneBoundingRect().center())
+    goal_start = QPointF(window.canvas._nodes[goal_id].pos())
+    operation_start = QPointF(window.canvas._nodes[operation_id].pos())
+
+    qtbot.mouseClick(window.canvas.viewport(), Qt.MouseButton.LeftButton, pos=goal_center)
+    qtbot.mouseClick(
+        window.canvas.viewport(),
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.ShiftModifier,
+        operation_center,
+    )
+    qtbot.waitUntil(lambda: set(window.canvas.selected_node_ids()) == {goal_id, operation_id})
+    assert window.inspector._stack.currentWidget() is window.inspector._empty_page
+
+    qtbot.mousePress(window.canvas.viewport(), Qt.MouseButton.LeftButton, pos=goal_center)
+    qtbot.mouseMove(window.canvas.viewport(), goal_center + QPoint(40, 25))
+    qtbot.mouseRelease(window.canvas.viewport(), Qt.MouseButton.LeftButton, pos=goal_center + QPoint(40, 25))
+
+    goal_delta = window.canvas._nodes[goal_id].pos() - goal_start
+    assert goal_delta != QPointF()
+    assert window.canvas._nodes[operation_id].pos() - operation_start == goal_delta
+    window._save_project()
 
 
 def test_reference_node_is_created_unselected_and_can_select_a_catalog_record(qtbot: object, tmp_path: Path) -> None:

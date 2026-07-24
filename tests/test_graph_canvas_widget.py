@@ -73,6 +73,62 @@ def test_node_drag_emits_one_committed_move_event(qtbot: object) -> None:
     assert blocker.args[1] != blocker.args[2]
 
 
+def test_shift_click_selects_multiple_nodes_and_dragging_moves_them_together(qtbot: object) -> None:
+    """選択済みノードへのShiftクリックで複数選択し、まとめて移動できる。"""
+    canvas = GraphCanvasWidget()
+    qtbot.addWidget(canvas)
+    canvas.resize(1000, 700)
+    canvas.set_graph(build_demo_graph())
+    canvas.show()
+    canvas.fit_all()
+    goal_center = canvas.mapFromScene(QPointF(200.0, 130.0))
+    operation_center = canvas.mapFromScene(QPointF(527.0, 130.0))
+    goal_start, operation_start = QPointF(canvas._nodes["goal"].pos()), QPointF(canvas._nodes["operation"].pos())
+    committed_node_ids: list[str] = []
+    canvas.node_move_committed.connect(lambda node_id, *_: committed_node_ids.append(node_id))
+
+    qtbot.mouseClick(canvas.viewport(), Qt.MouseButton.LeftButton, pos=goal_center)
+    qtbot.mouseClick(
+        canvas.viewport(),
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.ShiftModifier,
+        operation_center,
+    )
+    assert set(canvas.selected_node_ids()) == {"goal", "operation"}
+    assert canvas.selected_edge_ids() == []
+
+    qtbot.mousePress(canvas.viewport(), Qt.MouseButton.LeftButton, pos=goal_center)
+    qtbot.mouseMove(canvas.viewport(), goal_center + QPoint(45, 20))
+    qtbot.mouseRelease(canvas.viewport(), Qt.MouseButton.LeftButton, pos=goal_center + QPoint(45, 20))
+
+    assert canvas._nodes["goal"].pos() != goal_start
+    assert canvas._nodes["operation"].pos() - operation_start == canvas._nodes["goal"].pos() - goal_start
+    assert set(committed_node_ids) == {"goal", "operation"}
+
+
+def test_shift_clicking_an_edge_keeps_selection_single(qtbot: object) -> None:
+    """Shiftを押しても、エッジはノード選択へ追加されず単一選択になる。"""
+    canvas = GraphCanvasWidget()
+    qtbot.addWidget(canvas)
+    canvas.resize(1000, 700)
+    canvas.set_graph(build_demo_graph())
+    canvas.show()
+    canvas.fit_all()
+    goal_center = canvas.mapFromScene(QPointF(200.0, 130.0))
+    edge_position = canvas.mapFromScene(canvas._edges["edge-goal"].label_base_position())
+
+    qtbot.mouseClick(canvas.viewport(), Qt.MouseButton.LeftButton, pos=goal_center)
+    qtbot.mouseClick(
+        canvas.viewport(),
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.ShiftModifier,
+        edge_position,
+    )
+
+    assert canvas.selected_node_ids() == []
+    assert canvas.selected_edge_ids() == ["edge-goal"]
+
+
 def test_moved_edge_label_gets_a_connector_to_its_edge(qtbot: object) -> None:
     """ラベルをエッジから離すと、最近傍点への補助線が更新される。"""
     canvas = GraphCanvasWidget()
