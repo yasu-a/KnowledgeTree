@@ -1,7 +1,7 @@
 """一つのプロジェクトセッションを編集するMainWindow。"""
 
 from PyQt6.QtCore import QEvent, QPoint, QPointF, QSignalBlocker, QTimer, Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QCloseEvent, QColor, QIcon, QKeySequence, QPixmap
+from PyQt6.QtGui import QAction, QCloseEvent, QColor, QIcon, QKeySequence, QPainter, QPixmap
 from PyQt6.QtWidgets import QDialogButtonBox, QDockWidget, QMainWindow, QMenu, QStatusBar, QToolBar, QVBoxLayout
 
 from knowledge_tree.color_palette import ColorPalette
@@ -73,6 +73,10 @@ class MainWindow(QMainWindow):
         self.reference_catalog_action = QAction("文献を管理…", self)
         self.reference_catalog_action.setToolTip("文献を管理")
         self.reference_catalog_action.triggered.connect(lambda: self._show_reference_catalog())
+        self.reference_catalog_toolbar_action = QAction(self._reference_catalog_icon(), "", self)
+        self.reference_catalog_toolbar_action.setToolTip("文献を管理")
+        self.reference_catalog_toolbar_action.setIconText("文献を管理")
+        self.reference_catalog_toolbar_action.triggered.connect(lambda: self._show_reference_catalog())
 
         self.about_action = QAction("KnowledgeTreeについて", self)
         self.about_action.triggered.connect(self._show_about)
@@ -96,8 +100,24 @@ class MainWindow(QMainWindow):
         toolbar = QToolBar("表示", self)
         toolbar.setMovable(False)
         toolbar.addAction(self.project_settings_action)
-        toolbar.addAction(self.reference_catalog_action)
+        toolbar.addAction(self.reference_catalog_toolbar_action)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
+
+    def _reference_catalog_icon(self) -> QIcon:
+        """文献管理を表す開いた本のツールバーアイコンを作成する。"""
+        pixmap = QPixmap(20, 20)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QColor("#7fb0ff"))
+        painter.setBrush(QColor("#2f6fdb"))
+        painter.drawRoundedRect(2, 3, 16, 14, 2, 2)
+        painter.setPen(QColor("#eef5ff"))
+        painter.drawLine(10, 5, 10, 15)
+        painter.drawLine(4, 7, 8, 7)
+        painter.drawLine(12, 7, 16, 7)
+        painter.end()
+        return QIcon(pixmap)
 
     def _create_property_inspector(self) -> None:
         """Canvasの選択対象を編集する右側ドックを作成する。"""

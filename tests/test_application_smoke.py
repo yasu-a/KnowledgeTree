@@ -147,6 +147,8 @@ def test_toolbar_does_not_show_a_default_relation_combo(qtbot: object) -> None:
     qtbot.addWidget(window)
 
     assert hasattr(window, "default_edge_label_combo") is False
+    assert window.reference_catalog_toolbar_action.icon().isNull() is False
+    assert window.reference_catalog_action.text() == "文献を管理…"
 
 
 def test_inspector_can_be_reopened_from_the_view_menu_and_double_click_handlers(qtbot: object) -> None:
